@@ -1,351 +1,215 @@
-💎 AI Jewelry Visualization Engine
-🚀 Backend Roadmap (Gemini Flash 2.0 Based)
-0️⃣ Model Strategy
-Primary Model
+# 💎 Jewelry AI API
 
-Gemini 2.0 Flash
-→ Hızlı inference
-→ Multimodal (image + text)
-→ Composition + reasoning güçlü
+REST API for AI-powered jewelry visualization using Gemini 2.0 Flash
 
-Optional / Experimental
+## 🚀 Deployment (Ücretsiz Platformlar)
 
-Gemini Nano (Nano Banana latest)
-→ Lightweight preprocessing
-→ Prompt validation / QA check
-→ Integrity analyzer stage
+### Render (ÖNERİLEN)
 
-⚠️ Not: Gemini şu anda doğrudan “native diffusion image generation” motoru değil.
-Bu yüzden sistem iki katmanlı olacak:
+1. [Render Dashboard](https://dashboard.render.com/) → "New Web Service"
+2. GitHub repo'nu bağla
+3. Environment Variables → `GEMINI_API_KEY` ekle
+4. Deploy!
 
-Gemini → orchestration + prompt intelligence
+**Detaylı deployment guide**: [DEPLOYMENT.md](DEPLOYMENT.md)
 
-Diffusion engine → actual image generation (ControlNet/IP-Adapter)
+### Diğer Platformlar
 
-Gemini burada “brain”, diffusion layer “renderer”.
+- **Fly.io**: `fly launch` (CLI gerekli)
+- **Google Cloud Run**: `gcloud run deploy`
+- **Vercel**: `vercel` (serverless, sınırlı)
 
-🏗 1️⃣ High-Level Backend Architecture
-Client (Next.js)
-        ↓
-Node.js API (Backend Core)
-        ↓
-Processing Queue (BullMQ / Redis)
-        ↓
-AI Worker Layer
-   ├─ Gemini Flash 2.0 (logic)
-   ├─ Diffusion Engine (ControlNet/IP Adapter)
-   ├─ Face Embedding Service
-   └─ Image Integrity Validator
-        ↓
-Storage Layer (Google Drive API)
-        ↓
-ZIP Export Service
+Tüm platformlar için config dosyaları hazır:
 
-2️⃣ Backend Modules Breakdown
-🔹 A) Upload & Validation Service
-Endpoint
+- `render.yaml` - Render
+- `fly.toml` - Fly.io
+- `app.yaml` - Google Cloud Run
+- `vercel.json` - Vercel
+- `railway.json` - Railway
 
+## 🔧 Local Development
+
+### Docker ile (Önerilen)
+
+```bash
+# .env dosyası oluştur
+cp .env.example .env
+# GEMINI_API_KEY'i ekle
+
+# Başlat
+docker-compose up --build
+
+# API: http://localhost:8000
+# Docs: http://localhost:8000/docs
+```
+
+### Manuel
+
+```bash
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+export GEMINI_API_KEY=your_key_here
+uvicorn main:app --reload
+```
+
+## 📡 API Endpoints
+
+### 1. Upload Jewelry Image
+
+```bash
 POST /api/upload
+Content-Type: multipart/form-data
 
-Responsibilities
+curl -X POST http://localhost:8000/api/upload \
+  -F "file=@jewelry.jpg"
+```
 
-Validate resolution (min 2500px)
+Response:
 
-Detect format (PNG/JPG)
-
-Extract EXIF
-
-Create SHA-256 hash of image
-
-Store:
-
-original image
-
-product hash
-
-metadata
-
-product ID
-
-Why hash?
-
-Product integrity verification:
-
-if rendered_image_hash != original_hash_reference_layer
-→ FAIL → regenerate
-
-🔹 B) Gemini Orchestration Layer
-Endpoint
-POST /api/generate/model
-POST /api/generate/studio
-
-Gemini Role
-
-Using:
-
-Gemini 2.0 Flash API
-
-Gemini does:
-
-Prompt structuring
-
-Lighting instruction generation
-
-Composition validation
-
-Integrity rule injection
-
-Regeneration decision making
-
-Prompt Flow
-Step 1 – Structured Instruction Object
-
-Gemini returns JSON like:
-
+```json
 {
-  "lighting": "luxury soft top light with subtle fill",
-  "shadow_style": "soft diffused",
-  "model_pose": "natural relaxed",
-  "camera_angle": "85mm portrait",
-  "integrity_rules": [
-    "no metal tone shift",
-    "no stone modification",
-    "no resizing distortion"
-  ]
+  "success": true,
+  "product_id": "20240227_120000",
+  "metadata": {
+    "filename": "jewelry.jpg",
+    "size": { "width": 2048, "height": 2048 },
+    "hash": "abc123..."
+  }
 }
+```
 
-🔹 C) Pixel-Lock Rendering Pipeline
+### 2. Generate AI Prompt
 
-Critical part.
+```bash
+POST /api/generate/prompt?product_id={id}&style={model|studio}
 
-Rendering Flow
+curl -X POST "http://localhost:8000/api/generate/prompt?product_id=20240227_120000&style=model"
+```
 
-Extract jewelry mask
+Response:
 
-Freeze jewelry layer
+```json
+{
+  "success": true,
+  "product_id": "20240227_120000",
+  "style": "model",
+  "prompt": {
+    "lighting": "luxury soft top light...",
+    "model_description": "elegant pose...",
+    "background": "minimal luxury...",
+    "camera": "85mm portrait lens...",
+    "integrity_rules": ["no metal tone shift", "..."]
+  }
+}
+```
 
-Apply ControlNet reference
+### 3. Get Product Info
 
-Generate model/background ONLY
+```bash
+GET /api/products/{product_id}
 
-Composite jewelry back
+curl http://localhost:8000/api/products/20240227_120000
+```
 
-Pipeline:
+### 4. Get Product Image
 
-Original Jewelry → Mask → Locked Layer
-AI Model → Generated Background + Body
-Composite → Merge (non-destructive)
+```bash
+GET /api/products/{product_id}/image
 
-If any pixel deviation in jewelry layer:
+curl http://localhost:8000/api/products/20240227_120000/image --output jewelry.jpg
+```
 
-Auto regenerate
+### 5. Export as ZIP
 
-🔹 D) Face Uniqueness System
-Flow:
+```bash
+GET /api/export/{product_id}
 
-After model generation
+curl http://localhost:8000/api/export/20240227_120000 --output product.zip
+```
 
-Extract face crop
+### 6. Delete Product
 
-Generate embedding (FaceNet / ArcFace)
+```bash
+DELETE /api/products/{product_id}
 
-Compare with DB
+curl -X DELETE http://localhost:8000/api/products/20240227_120000
+```
 
-cosine_similarity(existing, new) > 0.60
-→ regenerate with new seed
-Store:
+## 📚 Interactive Documentation
 
-model_id
-embedding_vector
-seed_used
-timestamp
+API çalıştıktan sonra:
 
-Gemini can help decide:
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
 
-Should regenerate?
+## ✨ Features
 
-Adjust ethnicity / structure variation?
+- ✅ Jewelry image upload & validation (min 1024x1024)
+- ✅ Gemini 2.0 Flash AI prompt generation
+- ✅ Two modes: Model visualization & Studio photography
+- ✅ Product metadata management
+- ✅ ZIP export (image + metadata + prompts)
+- ✅ Image integrity (SHA-256 hash)
+- ✅ CORS enabled
+- ✅ Railway ready
+- ✅ Docker support
 
-🔹 E) Studio White Background Generator
+## 🛠 Tech Stack
 
-Gemini generates lighting logic:
-pure #FFFFFF
-shadow softness level 0.3
-reflection strength 0.1
-macro sharpness
+- **FastAPI** - Modern Python web framework
+- **Gemini 2.0 Flash** - Google's multimodal AI
+- **Pillow** - Image processing
+- **Redis** - Optional queue management
+- **Docker** - Containerization
 
-Angles pipeline:
+## 🔑 Getting Gemini API Key
 
-Front
+1. [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. "Create API Key" butonuna tıkla
+3. Key'i kopyala ve `.env` dosyasına ekle
 
-45°
+## 📝 Example Usage
 
-Side
+```python
+import requests
 
-Macro
+# Upload
+files = {'file': open('jewelry.jpg', 'rb')}
+response = requests.post('http://localhost:8000/api/upload', files=files)
+product_id = response.json()['product_id']
 
-Each angle rendered independently.
-Parallelized via queue.
+# Generate prompt
+response = requests.post(
+    f'http://localhost:8000/api/generate/prompt',
+    params={'product_id': product_id, 'style': 'model'}
+)
+prompt = response.json()['prompt']
+print(prompt)
+```
 
-🔹 F) Integrity Validator Engine
+## 🐛 Troubleshooting
 
-VERY IMPORTANT for luxury positioning.
+### Gemini API Error
 
-Steps
+- API key'in doğru olduğundan emin ol
+- [Google AI Studio](https://makersuite.google.com/app/apikey) üzerinden key'i kontrol et
 
-Crop jewelry region from output
+### Port Already in Use
 
-Structural similarity (SSIM)
+```bash
+docker-compose down
+docker-compose up
+```
 
-Histogram comparison
+### Permission Issues
 
-Edge detection comparison
+```bash
+mkdir -p uploads outputs
+chmod 777 uploads outputs
+```
 
-Pixel delta threshold
+## 📄 License
 
-If:
-
-SSIM < 0.97
-OR color shift > threshold
-→ FAIL
-→ regenerate
-
-Optional:
-Use Gemini to analyze differences visually:
-
-Does the gemstone count match?
-Are prongs identical?
-🔹 G) 4K Upscale & Finalizer
-
-All images:
-
-Minimum 3840x3840
-
-If base output lower:
-
-AI upscaler
-
-Sharpen
-
-Noise clean
-
-Final QA:
-
-Resolution check
-
-White background validation
-
-Transparency check (if needed)
-
-🔹 H) Export System
-Endpoint
-GET /api/export/:productId
-
-Generates:
-
-productname-model-01.png
-productname-studio-front.png
-productname-studio-45.png
-productname-studio-side.png
-productname-studio-macro.png
-
-ZIP builder → stream to client.
-
-WooCommerce compatible naming.
-
-🔹 I) Storage Layer
-
-Using:
-
-Google Drive API
-
-Folder structure:
-
-/products/{productId}/
-   original.png
-   model/
-   studio/
-   export/
-
-Metadata stored in DB:
-
-MongoDB or PostgreSQL
-
-🧠 Suggested Tech Stack (Production Grade)
-Backend Core
-
-Node.js (App Router API)
-
-BullMQ (queue)
-
-Redis (job management)
-
-AI Worker
-
-Python microservice
-
-Diffusers + ControlNet
-
-FaceNet embedding
-
-SSIM validator
-
-Database
-
-PostgreSQL (structured)
-
-Vector DB (face embeddings)
-
-🔐 Security Layer
-
-API key encryption
-
-Rate limiting
-
-Signed download URLs
-
-Role-based admin access
-
-⚡ Scaling Plan
-
-Phase 1:
-
-Single worker
-
-1 GPU
-
-Phase 2:
-
-Queue based horizontal scaling
-
-Separate model + studio workers
-
-Phase 3:
-
-Dedicated integrity cluster
-
-CDN for delivery
-
-🎯 Performance Targets
-
-Model visualization: < 25 sec
-
-Studio pack (4 angles): < 40 sec
-
-Export ZIP: < 5 sec
-
-🏆 Final Architecture Philosophy
-
-Gemini is NOT the renderer.
-Gemini is the:
-
-Prompt engineer
-
-Quality controller
-
-Regeneration brain
-
-Rule enforcer
-
-Diffusion engine = pixel machine
-Gemini = luxury product guardian
+MIT

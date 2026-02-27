@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PORT=8000
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+    depends_on:
+      - redis
+
+volumes:
+  redis_data:

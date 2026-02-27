@@ -1,0 +1,20 @@
+# Platform.sh configuration
+name: jewelry-ai-api
+type: python:3.11
+
+web:
+  commands:
+    start: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+  locations:
+    "/":
+      passthru: true
+
+disk: 512
+
+mounts:
+  "uploads":
+    source: local
+    source_path: uploads
+  "outputs":
+    source: local
+    source_path: outputs
