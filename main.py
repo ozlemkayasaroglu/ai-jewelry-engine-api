@@ -34,7 +34,12 @@ if not GEMINI_API_KEY:
     print("WARNING: GEMINI_API_KEY not set!")
 else:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    model = genai.GenerativeModel(
+        'gemini-2.0-flash-exp',
+        generation_config=genai.GenerationConfig(
+            temperature=0.2,  # Low temperature for stable, consistent results
+        )
+    )
 
 # Directories
 UPLOAD_DIR = Path("uploads")
@@ -153,9 +158,30 @@ async def generate_prompt(product_id: str, style: str = "model"):
         
         # Gemini prompt based on style
         if style == "model":
-            prompt = """Analyze this jewelry image and create a detailed prompt for AI image generation.
+            prompt = """You are a luxury jewelry visualization engine.
 
-The jewelry should be worn by a model. Generate a JSON response with:
+Task: Place the uploaded jewelry naturally on a professional female model.
+
+STRICT RULES:
+- Keep the jewelry EXACTLY the same.
+- Do NOT modify its design, size, gold tone, stones, or structure.
+- Jewelry must look physically worn and realistic.
+- Correct scale and natural placement.
+- Realistic skin contact and shadows.
+
+MODEL:
+- Elegant female model
+- Natural makeup
+- Soft studio lighting
+- Luxury fashion photography style
+
+OUTPUT:
+- High-end fashion editorial look
+- Focus on jewelry
+- Clean soft background
+- Professional magazine-quality lighting
+
+Generate a JSON response with:
 - lighting: describe luxury lighting setup (string)
 - model_description: ethnicity, pose, expression (string)
 - background: environment description (string)
@@ -165,7 +191,26 @@ The jewelry should be worn by a model. Generate a JSON response with:
 Return ONLY valid JSON, no markdown formatting."""
         
         elif style == "studio":
-            prompt = """Analyze this jewelry and create a studio photography prompt.
+            prompt = """You are a professional luxury jewelry retouching AI.
+
+Task: Transform the uploaded jewelry image into a high-end e-commerce studio product photo.
+
+STRICT RULES:
+- Keep the jewelry EXACTLY as it is.
+- Do NOT redesign, reshape, resize, or modify the product.
+- Preserve original gold color, diamond brilliance, reflections, texture, thickness, and proportions.
+- Do NOT alter clasp, stones, engravings, or structure.
+- Remove background completely.
+- Remove tags, strings, labels, stands, mannequins, hands, or any visible support objects.
+- Do not leave any trace, shadow, blur, hole, or artifact from removed elements.
+
+OUTPUT REQUIREMENTS:
+- Pure white luxury studio background (#FFFFFF).
+- Soft, natural shadow directly under the jewelry for realism.
+- Centered composition.
+- High-end commercial lighting.
+- Sharp focus, ultra detailed.
+- Looks like shot in a professional jewelry photography studio.
 
 Generate JSON with:
 - lighting: pure white background lighting description (string)
@@ -173,6 +218,7 @@ Generate JSON with:
 - shadow_softness: value between 0-1 (number)
 - background: must be pure white #FFFFFF (string)
 - camera_settings: professional studio camera setup (string)
+- integrity_rules: list of rules to preserve jewelry exactly (array of strings)
 
 Return ONLY valid JSON, no markdown formatting."""
         
