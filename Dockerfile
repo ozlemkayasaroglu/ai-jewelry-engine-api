@@ -8,4 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Create directories for uploads and outputs
+RUN mkdir -p uploads outputs
+
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
