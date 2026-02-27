@@ -74,6 +74,27 @@ async def root():
 async def health():
     return {"status": "healthy", "gemini_configured": bool(GEMINI_API_KEY)}
 
+@app.get("/test-gemini")
+async def test_gemini():
+    """Test Gemini API connection"""
+    if not GEMINI_API_KEY:
+        raise HTTPException(500, "GEMINI_API_KEY not configured")
+    
+    try:
+        response = model.generate_content("Say hello in one word")
+        return {
+            "success": True,
+            "model": "gemini-2.5-flash-image",
+            "response": response.text,
+            "message": "Gemini API is working!"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Gemini API failed"
+        }
+
 @app.post("/api/upload")
 async def upload_jewelry(file: UploadFile = File(...)):
     """
