@@ -11,7 +11,7 @@ env/
 # Environment
 .env
 .env.local
-
+.env.example
 # Uploads & outputs
 uploads/
 outputs/
