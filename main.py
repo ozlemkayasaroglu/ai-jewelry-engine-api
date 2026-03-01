@@ -46,6 +46,7 @@ UPLOAD_DIR = Path("uploads")
 OUTPUT_DIR = Path("outputs")
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
+ALLOWED_CONTENT_TYPES = {"image/png": "png", "image/jpeg": "jpg"}
 
 def calculate_hash(file_path: Path) -> str:
     """Calculate SHA-256 hash of file"""
@@ -54,6 +55,42 @@ def calculate_hash(file_path: Path) -> str:
         for byte_block in iter(lambda: f.read(4096), b""):
             sha256_hash.update(byte_block)
     return sha256_hash.hexdigest()
+
+
+def resolve_image_path(product_id: str) -> Path | None:
+    """Resolve the stored image path for a product_id (supports legacy files)."""
+    metadata_path = UPLOAD_DIR / f"{product_id}.json"
+    if metadata_path.exists():
+        try:
+            with open(metadata_path) as f:
+                metadata = json.load(f)
+        except Exception:
+            metadata = {}
+
+        stored_filename = metadata.get("stored_filename")
+        if stored_filename:
+            candidate = UPLOAD_DIR / stored_filename
+            if candidate.exists():
+                return candidate
+
+        image_extension = metadata.get("image_extension")
+        if image_extension:
+            candidate = UPLOAD_DIR / f"{product_id}.{str(image_extension).lower()}"
+            if candidate.exists():
+                return candidate
+
+    # Common extensions fallback (legacy behavior)
+    for ext in ["png", "jpg", "jpeg", "PNG", "JPG", "JPEG"]:
+        candidate = UPLOAD_DIR / f"{product_id}.{ext}"
+        if candidate.exists():
+            return candidate
+
+    # Last-resort fallback for unexpected extensions
+    for candidate in sorted(UPLOAD_DIR.glob(f"{product_id}.*")):
+        if candidate.is_file() and candidate.suffix.lower() != ".json":
+            return candidate
+
+    return None
 
 @app.get("/")
 async def root():
@@ -104,52 +141,77 @@ async def upload_jewelry(file: UploadFile = File(...)):
     - Minimum resolution: 1024x1024
     - Returns product_id and metadata
     """
+    product_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    metadata_path = UPLOAD_DIR / f"{product_id}.json"
+    file_path = None
+
     try:
-        if not file.content_type in ["image/png", "image/jpeg"]:
+        if file.content_type not in ALLOWED_CONTENT_TYPES:
             raise HTTPException(400, "Only PNG and JPEG files allowed")
-        
-        # Generate product ID
-        product_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_ext = file.filename.split(".")[-1]
+
+        # Normalize extension by MIME type instead of client filename
+        file_ext = ALLOWED_CONTENT_TYPES[file.content_type]
         file_path = UPLOAD_DIR / f"{product_id}.{file_ext}"
-        
-        # Save file
-        with open(file_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
-        
-        # Validate image
-        img = Image.open(file_path)
-        width, height = img.size
-        
+
+        content = await file.read()
+        if not content:
+            raise HTTPException(400, "Empty file uploaded")
+
+        # Validate image from memory first, before persisting anything
+        try:
+            img = Image.open(io.BytesIO(content))
+            img.verify()
+            img = Image.open(io.BytesIO(content))
+            width, height = img.size
+            image_format = img.format
+        except Exception:
+            raise HTTPException(400, "Invalid image file")
+
         if width < 1024 or height < 1024:
-            os.remove(file_path)
             raise HTTPException(400, f"Image too small: {width}x{height}. Minimum 1024x1024")
-        
-        # Calculate hash
+
+        # Persist image
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        if not file_path.exists() or file_path.stat().st_size == 0:
+            raise HTTPException(500, "Failed to store uploaded image")
+
+        # Save metadata only after image is confirmed persisted
         file_hash = calculate_hash(file_path)
-        
-        # Save metadata
         metadata = {
             "product_id": product_id,
             "filename": file.filename,
+            "stored_filename": file_path.name,
+            "image_extension": file_ext,
+            "content_type": file.content_type,
             "size": {"width": width, "height": height},
-            "format": img.format,
+            "format": image_format,
             "hash": file_hash,
             "uploaded_at": datetime.now().isoformat()
         }
-        
-        metadata_path = UPLOAD_DIR / f"{product_id}.json"
+
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
-        
+
         return {
             "success": True,
             "product_id": product_id,
             "metadata": metadata
         }
-    
+
+    except HTTPException:
+        # Keep upload atomic: no metadata without image, no partial image on failure
+        if metadata_path.exists():
+            os.remove(metadata_path)
+        if file_path and file_path.exists():
+            os.remove(file_path)
+        raise
     except Exception as e:
+        if metadata_path.exists():
+            os.remove(metadata_path)
+        if file_path and file_path.exists():
+            os.remove(file_path)
         raise HTTPException(500, str(e))
 
 @app.post("/api/generate/prompt")
@@ -165,13 +227,7 @@ async def generate_prompt(product_id: str, style: str = "model"):
             raise HTTPException(500, "GEMINI_API_KEY not configured")
         
         # Load image
-        file_path = None
-        for ext in ["png", "jpg", "jpeg"]:
-            path = UPLOAD_DIR / f"{product_id}.{ext}"
-            if path.exists():
-                file_path = path
-                break
-        
+        file_path = resolve_image_path(product_id)
         if not file_path:
             raise HTTPException(404, "Product image not found")
         
@@ -312,11 +368,10 @@ async def get_product(product_id: str):
 @app.get("/api/products/{product_id}/image")
 async def get_product_image(product_id: str):
     """Get product image"""
-    for ext in ["png", "jpg", "jpeg"]:
-        file_path = UPLOAD_DIR / f"{product_id}.{ext}"
-        if file_path.exists():
-            return FileResponse(file_path)
-    
+    file_path = resolve_image_path(product_id)
+    if file_path:
+        return FileResponse(file_path)
+
     raise HTTPException(404, "Image not found")
 
 @app.get("/api/export/{product_id}")
@@ -342,11 +397,9 @@ async def export_product(product_id: str):
         zip_file.write(metadata_path, f"{product_id}/metadata.json")
         
         # Add original image
-        for ext in ["png", "jpg", "jpeg"]:
-            img_path = UPLOAD_DIR / f"{product_id}.{ext}"
-            if img_path.exists():
-                zip_file.write(img_path, f"{product_id}/original.{ext}")
-                break
+        img_path = resolve_image_path(product_id)
+        if img_path:
+            zip_file.write(img_path, f"{product_id}/original{img_path.suffix.lower()}")
         
         # Add prompts
         for style in ["model", "studio"]:
@@ -374,11 +427,10 @@ async def delete_product(product_id: str):
         deleted_files.append(str(metadata_path))
     
     # Delete image
-    for ext in ["png", "jpg", "jpeg"]:
-        img_path = UPLOAD_DIR / f"{product_id}.{ext}"
-        if img_path.exists():
-            os.remove(img_path)
-            deleted_files.append(str(img_path))
+    img_path = resolve_image_path(product_id)
+    if img_path and img_path.exists():
+        os.remove(img_path)
+        deleted_files.append(str(img_path))
     
     # Delete prompts
     for style in ["model", "studio"]:
