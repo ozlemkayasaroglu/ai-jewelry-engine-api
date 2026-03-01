@@ -223,6 +223,7 @@ STRICT RULES:
 - Do NOT alter clasp, stones, engravings, or structure.
 - Remove background completely.
 - Remove tags, strings, labels, stands, mannequins, hands, or any visible support objects.
+- If any tag or label is blurry/foggy/partially visible, remove it completely as well.
 - Do not leave any trace, shadow, blur, hole, or artifact from removed elements.
 
 OUTPUT REQUIREMENTS:
