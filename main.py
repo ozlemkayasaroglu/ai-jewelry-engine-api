@@ -345,6 +345,8 @@ CRITICAL RULES:
         raise
     except Exception as e:
         raise HTTPException(500, str(e))
+
+@app.post("/api/generate/prompt")
 async def generate_prompt(product_id: str, style: str = "model"):
     """
     Generate AI prompt using Gemini 2.0 Flash
