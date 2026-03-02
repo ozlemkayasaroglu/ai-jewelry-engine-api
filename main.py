@@ -599,3 +599,87 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+@app.post("/api/generate/image")
+async def generate_jewelry_image(
+    product_id: str,
+    style: str = "model",
+    category: str = "bracelet",
+    skin_tone: str = "medium",
+    gender: str = "female"
+):
+    """
+    Generate jewelry visualization image using Gemini Imagen
+    
+    Parameters:
+    - product_id: ID from upload
+    - style: "model" (on body, face hidden) or "studio" (white background)
+    - category: bracelet, ring, necklace, earring
+    - skin_tone: light, medium, dark
+    - gender: female, male
+    """
+    try:
+        if not GEMINI_API_KEY:
+            raise HTTPException(500, "GEMINI_API_KEY not configured")
+        
+        if not IMAGEN_ENABLED:
+            raise HTTPException(500, "Image generation not available. Model: gemini-2.0-flash-exp-image-generation not accessible.")
+        
+        # Load original jewelry image
+        file_path = resolve_image_path(product_id)
+        if not file_path:
+            raise HTTPException(404, "Product image not found")
+        
+        img = Image.open(file_path)
+        
+        # Build detailed prompt
+        if style == "model":
+            prompt = f"""Professional jewelry photography: {category} worn on {gender} model with {skin_tone} skin tone.
+
+CRITICAL REQUIREMENTS:
+✓ Keep jewelry EXACTLY as in reference - same design, size, gold tone, stones
+✓ Model's FACE NOT VISIBLE (cropped or turned away)
+✓ Show only body part with {category}
+✓ Natural elegant pose
+✓ Soft studio lighting highlighting jewelry
+✓ Clean neutral background
+✓ High-end fashion editorial quality
+
+PLACEMENT:
+- Bracelet: wrist/forearm, hand relaxed
+- Ring: hand, fingers elegant  
+- Necklace: neck/collarbone, no face
+- Earring: ear/side of head, no face"""
+        else:
+            prompt = f"""Professional studio product photo of {category}.
+
+CRITICAL REQUIREMENTS:
+✓ Keep jewelry EXACTLY as in reference
+✓ Pure white background (#FFFFFF)
+✓ Remove ALL tags, labels, strings, stands
+✓ Soft shadow under jewelry
+✓ Centered, ultra sharp
+✓ High-end e-commerce quality"""
+        
+        # Generate with Imagen
+        response = imagen_model.generate_content([prompt, img])
+        
+        # Save generated image
+        generated_id = f"{product_id}_{style}_{datetime.now().strftime('%H%M%S')}"
+        
+        return {
+            "success": True,
+            "product_id": product_id,
+            "generated_id": generated_id,
+            "style": style,
+            "category": category,
+            "skin_tone": skin_tone,
+            "gender": gender,
+            "image_url": f"/api/generated/{generated_id}/image"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
