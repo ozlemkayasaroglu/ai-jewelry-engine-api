@@ -58,6 +58,17 @@ else:
     except:
         NANO_ENABLED = False
         print("⚠️  Nano Banana not available")
+    
+    # Image generation model
+    try:
+        imagen_model = genai.GenerativeModel(
+            'gemini-2.0-flash-exp-image-generation'
+        )
+        IMAGEN_ENABLED = True
+        print("✅ Imagen model initialized")
+    except:
+        IMAGEN_ENABLED = False
+        print("⚠️  Imagen not available")
 
 # Directories (local temp storage)
 UPLOAD_DIR = Path("uploads")
@@ -241,7 +252,99 @@ async def upload_jewelry(file: UploadFile = File(...)):
             os.remove(file_path)
         raise HTTPException(500, str(e))
 
-@app.post("/api/generate/prompt")
+@app.post("/api/generate/image")
+async def generate_image(
+    product_id: str,
+    style: str = "model",  # model or studio
+    category: str = "bracelet",  # bracelet, ring, necklace, earring
+    skin_tone: str = "medium",  # light, medium, dark
+    gender: str = "female"  # female, male
+):
+    """
+    Generate jewelry visualization image using Gemini Imagen
+    
+    - style: "model" (on mannequin) or "studio" (white background)
+    - category: jewelry type
+    - skin_tone: light, medium, dark
+    - gender: female, male
+    """
+    try:
+        if not GEMINI_API_KEY:
+            raise HTTPException(500, "GEMINI_API_KEY not configured")
+        
+        # Load original jewelry image
+        file_path = None
+        for ext in ["png", "jpg", "jpeg"]:
+            path = UPLOAD_DIR / f"{product_id}.{ext}"
+            if path.exists():
+                file_path = path
+                break
+        
+        if not file_path:
+            raise HTTPException(404, "Product image not found")
+        
+        img = Image.open(file_path)
+        
+        # Build prompt based on parameters
+        if style == "model":
+            # Model visualization (face hidden)
+            base_prompt = f"""Professional jewelry photography: {category} worn on {gender} model.
+
+CRITICAL RULES:
+- Keep the jewelry EXACTLY as shown in the reference image
+- Do NOT modify design, size, gold tone, stones, or structure
+- Model's face is NOT visible (cropped or turned away)
+- Focus on {category} placement on body
+- {skin_tone.capitalize()} skin tone
+- Natural, elegant pose
+- Soft studio lighting
+- Clean background
+- High-end fashion editorial style"""
+
+        else:  # studio
+            # Studio product photography
+            base_prompt = f"""Professional studio product photography of {category}.
+
+CRITICAL RULES:
+- Keep the jewelry EXACTLY as shown in the reference image
+- Pure white background (#FFFFFF)
+- Remove ALL tags, labels, strings, stands
+- Professional lighting with soft shadow
+- Centered composition
+- Ultra sharp focus
+- High-end e-commerce quality
+- No modifications to jewelry design"""
+        
+        # Generate image using Gemini Imagen
+        try:
+            # Note: Gemini Imagen API might need different endpoint
+            # This is a placeholder - actual implementation depends on available API
+            response = model.generate_content([
+                base_prompt,
+                img,
+                "Generate a photorealistic image following these exact specifications."
+            ])
+            
+            # For now, return the prompt (actual image generation needs Imagen API)
+            return {
+                "success": True,
+                "product_id": product_id,
+                "style": style,
+                "category": category,
+                "skin_tone": skin_tone,
+                "gender": gender,
+                "prompt": base_prompt,
+                "note": "Image generation requires Imagen API integration",
+                "generated_image_url": None  # Will be populated when Imagen is integrated
+            }
+            
+        except Exception as e:
+            raise HTTPException(500, f"Image generation failed: {str(e)}")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
 async def generate_prompt(product_id: str, style: str = "model"):
     """
     Generate AI prompt using Gemini 2.0 Flash
