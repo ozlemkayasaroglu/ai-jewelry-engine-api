@@ -665,21 +665,56 @@ CRITICAL REQUIREMENTS:
         # Generate with Imagen
         response = imagen_model.generate_content([prompt, img])
         
-        # Save generated image
+        # Extract generated image from response
         generated_id = f"{product_id}_{style}_{datetime.now().strftime('%H%M%S')}"
+        output_path = OUTPUT_DIR / f"{generated_id}.png"
         
-        return {
-            "success": True,
-            "product_id": product_id,
-            "generated_id": generated_id,
-            "style": style,
-            "category": category,
-            "skin_tone": skin_tone,
-            "gender": gender,
-            "image_url": f"/api/generated/{generated_id}/image"
-        }
+        # Check if response contains image data
+        if hasattr(response, 'parts'):
+            for part in response.parts:
+                if hasattr(part, 'inline_data'):
+                    # Save image from inline data
+                    image_data = part.inline_data.data
+                    with open(output_path, 'wb') as f:
+                        f.write(image_data)
+                    
+                    return {
+                        "success": True,
+                        "product_id": product_id,
+                        "generated_id": generated_id,
+                        "style": style,
+                        "category": category,
+                        "skin_tone": skin_tone,
+                        "gender": gender,
+                        "image_url": f"/api/generated/{generated_id}/image",
+                        "download_url": f"/api/generated/{generated_id}/download"
+                    }
+        
+        # If no image in response, return error
+        raise HTTPException(500, f"No image generated. Response: {response.text[:200]}")
         
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@app.get("/api/generated/{generated_id}/image")
+async def get_generated_image(generated_id: str):
+    """Get generated image"""
+    file_path = OUTPUT_DIR / f"{generated_id}.png"
+    if file_path.exists():
+        return FileResponse(file_path)
+    raise HTTPException(404, "Generated image not found")
+
+@app.get("/api/generated/{generated_id}/download")
+async def download_generated_image(generated_id: str):
+    """Download generated image"""
+    file_path = OUTPUT_DIR / f"{generated_id}.png"
+    if file_path.exists():
+        return FileResponse(
+            file_path,
+            media_type="image/png",
+            filename=f"{generated_id}.png"
+        )
+    raise HTTPException(404, "Generated image not found")
