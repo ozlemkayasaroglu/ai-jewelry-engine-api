@@ -36,12 +36,28 @@ if not GEMINI_API_KEY:
     print("WARNING: GEMINI_API_KEY not set!")
 else:
     genai.configure(api_key=GEMINI_API_KEY)
+    
+    # Primary model for prompt generation
     model = genai.GenerativeModel(
         'gemini-2.5-flash',  # Latest stable model
         generation_config=genai.GenerationConfig(
             temperature=0.2,  # Low temperature for stable, consistent results
         )
     )
+    
+    # Nano Banana for lightweight validation/QA
+    try:
+        nano_model = genai.GenerativeModel(
+            'nano-banana-pro-preview',
+            generation_config=genai.GenerationConfig(
+                temperature=0.1,  # Very low for consistency
+            )
+        )
+        NANO_ENABLED = True
+        print("✅ Nano Banana model initialized")
+    except:
+        NANO_ENABLED = False
+        print("⚠️  Nano Banana not available")
 
 # Directories (local temp storage)
 UPLOAD_DIR = Path("uploads")
@@ -335,6 +351,24 @@ Return ONLY valid JSON, no markdown formatting."""
         except json.JSONDecodeError:
             # If JSON parsing fails, return raw text
             prompt_data = {"raw_response": text, "error": "Failed to parse as JSON"}
+        
+        # Optional: Validate with Nano Banana
+        if NANO_ENABLED and isinstance(prompt_data, dict) and "error" not in prompt_data:
+            try:
+                validation_prompt = f"""Review this jewelry visualization prompt for accuracy and completeness:
+{json.dumps(prompt_data, indent=2)}
+
+Check:
+1. Are all required fields present?
+2. Do the instructions preserve jewelry integrity?
+3. Is the lighting description professional?
+
+Respond with: "APPROVED" or "NEEDS_REVISION: [reason]"
+"""
+                validation = nano_model.generate_content(validation_prompt)
+                prompt_data["nano_validation"] = validation.text.strip()
+            except:
+                pass  # Validation is optional
         
         # Save prompt
         prompt_path = OUTPUT_DIR / f"{product_id}_prompt_{style}.json"
