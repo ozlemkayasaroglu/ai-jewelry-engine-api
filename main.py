@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
 import google.generativeai as genai
 from PIL import Image
 import os
@@ -11,6 +11,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 import io
 import zipfile
+import tempfile
+from firebase_config import initialize_firebase, upload_to_firebase, get_firebase_url
 
 load_dotenv()
 
@@ -41,11 +43,20 @@ else:
         )
     )
 
-# Directories
+# Directories (local temp storage)
 UPLOAD_DIR = Path("uploads")
 OUTPUT_DIR = Path("outputs")
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+# Initialize Firebase
+try:
+    firebase_bucket = initialize_firebase()
+    FIREBASE_ENABLED = True
+    print("✅ Firebase Storage initialized")
+except Exception as e:
+    FIREBASE_ENABLED = False
+    print(f"⚠️  Firebase not configured: {e}")
 ALLOWED_CONTENT_TYPES = {"image/png": "png", "image/jpeg": "jpg"}
 
 def calculate_hash(file_path: Path) -> str:
