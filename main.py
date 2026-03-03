@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 import google.generativeai as genai
@@ -11,13 +11,18 @@ from datetime import datetime
 from dotenv import load_dotenv
 import io
 import zipfile
+from pydantic import BaseModel
+from uuid import uuid4
+import subprocess
+import shutil
+import threading
 
 load_dotenv()
 
 app = FastAPI(
     title="Jewelry AI API",
     description="AI-powered jewelry visualization API using Gemini",
-    version="1.0.0"
+    version="1.1.0"
 )
 
 app.add_middleware(
@@ -60,17 +65,92 @@ else:
     
     # Image generation model
     try:
-        imagen_model = genai.GenerativeModel('imagen-3.0-generate-001')
+        image_model_name = os.getenv("IMAGE_GENERATION_MODEL", "gemini-2.5-flash-image")
+        imagen_model = genai.GenerativeModel(image_model_name)
         IMAGEN_ENABLED = True
-        print("✅ Imagen model initialized")
-    except:
-        print("⚠️ Imagen model not available")
+        print(f"✅ Image model initialized: {image_model_name}")
+    except Exception as e:
+        print(f"⚠️ Image model not available: {e}")
 
 # Directories
 UPLOAD_DIR = Path("uploads")
 OUTPUT_DIR = Path("outputs")
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+ALLOWED_CATEGORIES = {"earrings", "necklace", "ring", "bracelet"}
+ALLOWED_GENDERS = {"female", "male", "child", "unisex"}
+ALLOWED_STYLES = {"model", "studio"}
+ALLOWED_RENDER_PRESETS = {"thumbnail", "hero"}
+
+CATEGORY_ALIASES = {
+    "küpe": "earrings",
+    "kupe": "earrings",
+    "earring": "earrings",
+    "earrings": "earrings",
+    "kolye": "necklace",
+    "necklace": "necklace",
+    "yüzük": "ring",
+    "yuzuk": "ring",
+    "ring": "ring",
+    "bileklik": "bracelet",
+    "kelepçe": "bracelet",
+    "kelepce": "bracelet",
+    "bracelet": "bracelet",
+    "bangle": "bracelet",
+}
+
+GENDER_ALIASES = {
+    "kadın": "female",
+    "kadin": "female",
+    "female": "female",
+    "woman": "female",
+    "erkek": "male",
+    "male": "male",
+    "man": "male",
+    "çocuk": "child",
+    "cocuk": "child",
+    "child": "child",
+    "kid": "child",
+    "unisex": "unisex",
+    "neutral": "unisex",
+}
+
+CATEGORY_COMPOSITIONS = {
+    "earrings": (
+        "Extreme macro framing of the earlobe and soft jawline only. "
+        "The rest of the face must stay completely out of frame."
+    ),
+    "necklace": (
+        "Close-up macro framing on collarbone, neck, and shoulders. "
+        "No facial features in frame."
+    ),
+    "ring": (
+        "Macro framing on hand and fingers with natural, elegant anatomy. "
+        "Fingers must look proportionate and realistic."
+    ),
+    "bracelet": (
+        "Macro framing on wrist and forearm with natural posture. "
+        "Only forearm/hand area visible, no face."
+    ),
+}
+
+GENDER_GUIDANCE = {
+    "female": "adult female model styling with elegant posture",
+    "male": "adult male model styling with natural masculine proportions",
+    "child": "child model styling, age-appropriate wardrobe, safe and non-revealing composition",
+    "unisex": "modern neutral styling suitable for unisex luxury campaigns",
+}
+
+STYLE_ALIASES = {
+    "model": "model",
+    "luxury model": "model",
+    "studio": "studio",
+    "luxury studio": "studio",
+}
+
+JOBS = {}
+JOBS_LOCK = threading.Lock()
 
 def calculate_hash(file_path: Path) -> str:
     """Calculate SHA-256 hash of file"""
@@ -88,20 +168,293 @@ def resolve_image_path(product_id: str):
             return path
     return None
 
+def normalize_category(category: str) -> str:
+    normalized = CATEGORY_ALIASES.get(category.strip().lower())
+    if not normalized or normalized not in ALLOWED_CATEGORIES:
+        raise HTTPException(
+            400,
+            "Invalid category. Use one of: earrings, necklace, ring, bracelet"
+        )
+    return normalized
+
+def normalize_gender(gender: str) -> str:
+    normalized = GENDER_ALIASES.get(gender.strip().lower())
+    if not normalized or normalized not in ALLOWED_GENDERS:
+        raise HTTPException(400, "Invalid gender. Use one of: female, male, child, unisex")
+    return normalized
+
+def normalize_style(style: str) -> str:
+    normalized = STYLE_ALIASES.get(style.strip().lower())
+    if not normalized or normalized not in ALLOWED_STYLES:
+        raise HTTPException(400, "Invalid style. Use one of: model, studio")
+    return normalized
+
+def build_prompt(
+    category: str,
+    gender: str,
+    style: str,
+    skin_tone: str,
+    stone_detail: str = ""
+) -> str:
+    category_map = {
+        "bracelet": "high-end solid gold bracelet/bangle",
+        "ring": "high-end solid gold ring",
+        "earrings": "high-end solid gold earrings",
+        "necklace": "high-end solid gold necklace",
+    }
+    gender_map = {
+        "female": "elegant feminine styling",
+        "male": "minimal masculine styling",
+        "child": "age-appropriate child styling",
+        "unisex": "modern neutral styling",
+    }
+    style_map = {
+        "model": "luxury editorial macro on model",
+        "studio": "luxury e-commerce studio product shot",
+    }
+    composition_line = CATEGORY_COMPOSITIONS[category] if style == "model" else (
+        "Centered composition with crisp edges and soft grounded shadow."
+    )
+    face_line = (
+        "Face strictly out of frame. Show only the relevant body area for wearing realism."
+        if style == "model"
+        else "No model body visible."
+    )
+    stone_line = (
+        f"Stone details: {stone_detail}. Keep exact stone cut, color, and settings."
+        if stone_detail.strip()
+        else "Preserve all gemstone details exactly from source."
+    )
+
+    return f"""
+Ultra realistic jewelry product photography.
+Subject: {category_map[category]}.
+Styling: {gender_map[gender]}.
+Render mode: {style_map[style]}.
+Skin tone direction: {skin_tone}.
+Model guidance: {GENDER_GUIDANCE[gender]}.
+Composition: {composition_line}
+Framing rule: {face_line}
+
+STRICT PRODUCT INTEGRITY:
+- Keep jewelry 1:1 identical to source product image.
+- No redesign, no distortion, no warped geometry, no missing elements.
+- Accurate gold color tone, accurate gemstone sparkle, realistic metal reflections.
+- Preserve prongs, links, clasps, stone count, dimensions, and engraving details.
+
+VISUAL QUALITY:
+- macro lens 100mm
+- sharp focus
+- natural luxury lighting
+- bright but controlled highlights
+- soft shadow
+- no artificial glow
+- white seamless background for studio style
+- premium creamy bokeh for model style
+- base generation must be optimized for 1024x1024 speed path
+
+NEGATIVE PROMPT:
+blurry, overexposed, fake gold, cartoonish, distorted shape, extra fingers,
+anatomy errors, low resolution, plastic texture, noisy background, bad reflections
+
+{stone_line}
+""".strip()
+
+class GenerateImageRequest(BaseModel):
+    product_id: str
+    category: str = "bracelet"
+    gender: str = "female"
+    style: str = "model"
+    skin_tone: str = "medium"
+    stone_detail: str = ""
+    render_preset: str = "hero"
+
+class GeneratePromptRequest(BaseModel):
+    product_id: str
+    category: str = "bracelet"
+    gender: str = "female"
+    style: str = "model"
+    skin_tone: str = "medium"
+    stone_detail: str = ""
+
+def normalize_render_preset(render_preset: str) -> str:
+    normalized = render_preset.strip().lower()
+    if normalized not in ALLOWED_RENDER_PRESETS:
+        raise HTTPException(400, "Invalid render_preset. Use one of: thumbnail, hero")
+    return normalized
+
+def select_image_model(render_preset: str):
+    primary_model_name = os.getenv("IMAGE_GENERATION_MODEL", "gemini-2.5-flash-image")
+    if render_preset == "thumbnail":
+        thumbnail_model_name = os.getenv("THUMBNAIL_IMAGE_MODEL", primary_model_name)
+        try:
+            return genai.GenerativeModel(thumbnail_model_name), thumbnail_model_name
+        except Exception:
+            return imagen_model, primary_model_name
+    return imagen_model, primary_model_name
+
+def _inline_part_to_bytes(part):
+    inline = getattr(part, "inline_data", None)
+    if inline is None:
+        return None
+    data = getattr(inline, "data", None)
+    if data:
+        return data
+    if isinstance(inline, dict) and inline.get("data"):
+        return inline["data"]
+    return None
+
+def extract_inline_image_bytes(response):
+    # Path 1: response.parts
+    if hasattr(response, "parts") and response.parts:
+        for part in response.parts:
+            data = _inline_part_to_bytes(part)
+            if data:
+                return data
+
+    # Path 2: response.candidates[*].content.parts
+    candidates = getattr(response, "candidates", None) or []
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        parts = getattr(content, "parts", None) or []
+        for part in parts:
+            data = _inline_part_to_bytes(part)
+            if data:
+                return data
+
+    # Path 3: dictionary-like fallback
+    if isinstance(response, dict):
+        for candidate in response.get("candidates", []):
+            content = candidate.get("content", {})
+            for part in content.get("parts", []):
+                inline = part.get("inline_data") or part.get("inlineData")
+                if inline and inline.get("data"):
+                    return inline["data"]
+
+    return None
+
+def prepare_base_image_1024(source_path: Path) -> Image.Image:
+    with Image.open(source_path) as img:
+        src = img.convert("RGB")
+        src.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+        canvas = Image.new("RGB", (1024, 1024), (255, 255, 255))
+        offset = ((1024 - src.size[0]) // 2, (1024 - src.size[1]) // 2)
+        canvas.paste(src, offset)
+        return canvas
+
+def upscale_with_pillow(source_path: Path, target_path: Path) -> dict:
+    with Image.open(source_path) as img:
+        img = img.convert("RGB")
+        source_width, source_height = img.size
+        scale = 3840 / max(source_width, source_height)
+        resized = img.resize(
+            (max(1, int(round(source_width * scale))), max(1, int(round(source_height * scale)))),
+            Image.Resampling.LANCZOS
+        )
+        resized.save(target_path, format="PNG", optimize=True)
+        return {
+            "provider": "pillow",
+            "source_width": source_width,
+            "source_height": source_height,
+            "target_width": resized.size[0],
+            "target_height": resized.size[1]
+        }
+
+def upscale_with_realesrgan(source_path: Path, target_path: Path) -> dict:
+    binary = os.getenv("REALESRGAN_BIN", "realesrgan-ncnn-vulkan")
+    if shutil.which(binary) is None:
+        raise RuntimeError(f"{binary} not found in PATH")
+
+    tmp_target = target_path.with_name(f"{target_path.stem}_tmp{target_path.suffix}")
+    command = [binary, "-i", str(source_path), "-o", str(tmp_target), "-s", "4"]
+    subprocess.run(command, check=True, capture_output=True, text=True)
+
+    with Image.open(tmp_target) as upscaled:
+        upscaled = upscaled.convert("RGB")
+        source = Image.open(source_path)
+        source_width, source_height = source.size
+        source.close()
+        scale = 3840 / max(upscaled.size)
+        resized = upscaled.resize(
+            (max(1, int(round(upscaled.size[0] * scale))), max(1, int(round(upscaled.size[1] * scale)))),
+            Image.Resampling.LANCZOS
+        )
+        resized.save(target_path, format="PNG", optimize=True)
+        tmp_target.unlink(missing_ok=True)
+        return {
+            "provider": "realesrgan",
+            "source_width": source_width,
+            "source_height": source_height,
+            "target_width": resized.size[0],
+            "target_height": resized.size[1]
+        }
+
+def upscale_with_imagen(source_path: Path, target_path: Path) -> dict:
+    if not IMAGEN_ENABLED:
+        raise RuntimeError("Imagen not available for upscale")
+    base_image = Image.open(source_path)
+    response = imagen_model.generate_content([
+        "Upscale this jewelry image to true 4K while preserving exact product integrity, metal texture, and gemstone details.",
+        base_image
+    ])
+    base_image.close()
+    image_bytes = extract_inline_image_bytes(response)
+    if not image_bytes:
+        raise RuntimeError("Imagen upscale returned no image")
+
+    with open(target_path, "wb") as f:
+        f.write(image_bytes)
+
+    with Image.open(source_path) as src, Image.open(target_path) as out:
+        source_width, source_height = src.size
+        target_width, target_height = out.size
+    return {
+        "provider": "imagen",
+        "source_width": source_width,
+        "source_height": source_height,
+        "target_width": target_width,
+        "target_height": target_height
+    }
+
+def upscale_to_4k(source_path: Path, target_path: Path) -> dict:
+    provider = os.getenv("UPSCALE_PROVIDER", "imagen").strip().lower()
+    try:
+        if provider == "realesrgan":
+            return upscale_with_realesrgan(source_path, target_path)
+        if provider == "imagen":
+            return upscale_with_imagen(source_path, target_path)
+        return upscale_with_pillow(source_path, target_path)
+    except Exception as exc:
+        fallback = upscale_with_pillow(source_path, target_path)
+        fallback["fallback_reason"] = str(exc)
+        return fallback
+
 @app.get("/")
 async def root():
     return {
         "status": "Jewelry AI API Running",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "endpoints": {
             "docs": "/docs",
             "upload": "POST /api/upload",
             "generate_prompt": "POST /api/generate/prompt",
             "generate_image": "POST /api/generate/image",
+            "status": "GET /api/status/{job_id}",
+            "options": "GET /api/options",
             "get_product": "GET /api/products/{product_id}",
             "get_image": "GET /api/products/{product_id}/image",
             "export": "GET /api/export/{product_id}"
         }
+    }
+
+@app.get("/api/options")
+async def get_options():
+    return {
+        "categories": sorted(ALLOWED_CATEGORIES),
+        "genders": sorted(ALLOWED_GENDERS),
+        "styles": sorted(ALLOWED_STYLES),
+        "render_presets": sorted(ALLOWED_RENDER_PRESETS),
+        "upscale_provider": os.getenv("UPSCALE_PROVIDER", "imagen")
     }
 
 @app.get("/health")
@@ -110,7 +463,9 @@ async def health():
         "status": "healthy",
         "gemini_configured": bool(GEMINI_API_KEY),
         "nano_enabled": NANO_ENABLED,
-        "imagen_enabled": IMAGEN_ENABLED
+        "imagen_enabled": IMAGEN_ENABLED,
+        "image_model": os.getenv("IMAGE_GENERATION_MODEL", "gemini-2.5-flash-image"),
+        "upscale_provider": os.getenv("UPSCALE_PROVIDER", "imagen")
     }
 
 @app.get("/test-gemini")
@@ -186,181 +541,210 @@ async def upload_jewelry(file: UploadFile = File(...)):
         raise HTTPException(500, str(e))
 
 @app.post("/api/generate/prompt")
-async def generate_prompt(product_id: str, style: str = "model"):
-    """Generate AI prompt using Gemini"""
+async def generate_prompt(payload: GeneratePromptRequest):
+    """Generate backend-controlled image prompt template"""
     try:
-        if not GEMINI_API_KEY:
-            raise HTTPException(500, "GEMINI_API_KEY not configured")
-        
-        # Load image
-        file_path = resolve_image_path(product_id)
+        file_path = resolve_image_path(payload.product_id)
         if not file_path:
             raise HTTPException(404, "Product image not found")
-        
-        img = Image.open(file_path)
-        
-        # Gemini prompt based on style
-        if style == "model":
-            prompt = """You are a luxury jewelry visualization engine.
 
-Task: Place the uploaded jewelry naturally on a professional female model.
+        category = normalize_category(payload.category)
+        gender = normalize_gender(payload.gender)
+        style = normalize_style(payload.style)
 
-STRICT RULES:
-- Keep the jewelry EXACTLY the same
-- Do NOT modify design, size, gold tone, stones, or structure
-- Jewelry must look physically worn and realistic
-- Model's FACE NOT VISIBLE (cropped or turned away)
-- Natural elegant pose
-- Soft studio lighting
-- Clean soft background
+        prompt_text = build_prompt(
+            category=category,
+            gender=gender,
+            style=style,
+            skin_tone=payload.skin_tone,
+            stone_detail=payload.stone_detail
+        )
 
-Generate JSON with:
-- lighting: luxury lighting setup (string)
-- model_description: pose, body part visible (string)
-- background: environment description (string)
-- camera: angle and lens (string)
-- integrity_rules: jewelry preservation rules (array)
+        prompt_data = {
+            "prompt_text": prompt_text,
+            "style": style,
+            "category": category,
+            "gender": gender,
+            "skin_tone": payload.skin_tone,
+            "stone_detail": payload.stone_detail,
+            "base_resolution": "1024x1024",
+            "upscale_target": "4k"
+        }
 
-Return ONLY valid JSON."""
-        
-        elif style == "studio":
-            prompt = """You are a professional luxury jewelry retouching AI.
-
-Task: Transform into high-end e-commerce studio photo.
-
-STRICT RULES:
-- Keep jewelry EXACTLY as it is
-- Do NOT redesign, reshape, resize, or modify
-- Preserve gold color, diamond brilliance, reflections
-- Remove background completely
-- Remove tags, strings, labels, stands, hands
-- Pure white background (#FFFFFF)
-- Soft shadow under jewelry
-- Centered composition
-- Ultra sharp focus
-
-Generate JSON with:
-- lighting: white background lighting (string)
-- angles: needed angles (array)
-- shadow_softness: 0-1 value (number)
-- background: #FFFFFF (string)
-- camera_settings: studio setup (string)
-- integrity_rules: jewelry preservation rules (array)
-
-Return ONLY valid JSON."""
-        
-        else:
-            raise HTTPException(400, "Invalid style. Use 'model' or 'studio'")
-        
-        # Call Gemini
-        response = model.generate_content([prompt, img])
-        text = response.text.strip()
-        
-        # Clean markdown
-        if text.startswith("```json"):
-            text = text[7:]
-        if text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-        
-        try:
-            prompt_data = json.loads(text)
-        except json.JSONDecodeError:
-            prompt_data = {"raw_response": text, "error": "Failed to parse JSON"}
-        
-        # Save prompt
-        prompt_path = OUTPUT_DIR / f"{product_id}_prompt_{style}.json"
+        prompt_path = OUTPUT_DIR / f"{payload.product_id}_prompt_{style}.json"
         with open(prompt_path, "w") as f:
             json.dump(prompt_data, f, indent=2)
-        
+
         return {
             "success": True,
-            "product_id": product_id,
+            "product_id": payload.product_id,
             "style": style,
+            "category": category,
+            "gender": gender,
             "prompt": prompt_data
         }
-    
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, str(e))
+
+def process_generation_job(job_id: str, payload: GenerateImageRequest):
+    try:
+        with JOBS_LOCK:
+            JOBS[job_id]["status"] = "processing"
+            JOBS[job_id]["progress"] = 20
+
+        if not IMAGEN_ENABLED:
+            raise RuntimeError("Image generation not available")
+
+        file_path = resolve_image_path(payload.product_id)
+        if not file_path:
+            raise RuntimeError("Product image not found")
+
+        category = normalize_category(payload.category)
+        gender = normalize_gender(payload.gender)
+        style = normalize_style(payload.style)
+        render_preset = normalize_render_preset(payload.render_preset)
+        image_model, model_name = select_image_model(render_preset)
+
+        prompt = build_prompt(
+            category=category,
+            gender=gender,
+            style=style,
+            skin_tone=payload.skin_tone,
+            stone_detail=payload.stone_detail
+        )
+
+        with JOBS_LOCK:
+            JOBS[job_id]["progress"] = 45
+            JOBS[job_id]["prompt_preview"] = prompt[:400]
+            JOBS[job_id]["model"] = model_name
+
+        base_img = prepare_base_image_1024(file_path)
+        try:
+            response = image_model.generate_content(
+                [prompt, base_img],
+                generation_config=genai.GenerationConfig(
+                    response_modalities=["IMAGE", "TEXT"]
+                )
+            )
+        except Exception:
+            response = image_model.generate_content([prompt, base_img])
+        base_img.close()
+
+        with JOBS_LOCK:
+            JOBS[job_id]["progress"] = 70
+
+        image_bytes = extract_inline_image_bytes(response)
+        if not image_bytes:
+            raise RuntimeError("No image generated")
+
+        generated_id = f"{payload.product_id}_{style}_{datetime.now().strftime('%H%M%S')}"
+        output_path = OUTPUT_DIR / f"{generated_id}.png"
+        output_4k_path = OUTPUT_DIR / f"{generated_id}_4k.png"
+
+        with open(output_path, "wb") as f:
+            f.write(image_bytes)
+
+        resolution_info = {}
+        image_4k_url = None
+        download_4k_url = None
+        if render_preset == "hero":
+            resolution_info = upscale_to_4k(output_path, output_4k_path)
+            image_4k_url = f"/api/generated/{generated_id}/image?quality=4k"
+            download_4k_url = f"/api/generated/{generated_id}/image?quality=4k&download=true"
+        else:
+            with Image.open(output_path) as out:
+                resolution_info = {
+                    "provider": "base-only",
+                    "source_width": out.size[0],
+                    "source_height": out.size[1],
+                    "target_width": out.size[0],
+                    "target_height": out.size[1]
+                }
+
+        with JOBS_LOCK:
+            JOBS[job_id]["status"] = "completed"
+            JOBS[job_id]["progress"] = 100
+            JOBS[job_id]["result"] = {
+                "success": True,
+                "product_id": payload.product_id,
+                "generated_id": generated_id,
+                "style": style,
+                "category": category,
+                "gender": gender,
+                "render_preset": render_preset,
+                "image_url": f"/api/generated/{generated_id}/image?quality=original",
+                "image_4k_url": image_4k_url,
+                "download_4k_url": download_4k_url,
+                "resolution": resolution_info
+            }
+    except Exception as exc:
+        with JOBS_LOCK:
+            JOBS[job_id]["status"] = "failed"
+            JOBS[job_id]["error"] = str(exc)
 
 @app.post("/api/generate/image")
-async def generate_image(
-    product_id: str,
-    style: str = "model",
-    category: str = "bracelet",
-    skin_tone: str = "medium",
-    gender: str = "female"
-):
-    """Generate jewelry visualization image"""
-    try:
-        if not GEMINI_API_KEY:
-            raise HTTPException(500, "GEMINI_API_KEY not configured")
-        
-        if not IMAGEN_ENABLED:
-            raise HTTPException(500, "Image generation not available")
-        
-        # Load original image
-        file_path = resolve_image_path(product_id)
-        if not file_path:
-            raise HTTPException(404, "Product image not found")
-        
-        img = Image.open(file_path)
-        
-        # Build prompt
-        if style == "model":
-            prompt = f"""Professional jewelry photo: {category} on {gender} model, {skin_tone} skin.
-- Keep jewelry EXACTLY as shown
-- Face NOT visible
-- Natural pose
-- Soft lighting
-- Clean background"""
-        else:
-            prompt = f"""Studio photo of {category}.
-- Keep jewelry EXACTLY as shown
-- White background
-- Remove all tags/stands
-- Centered, sharp focus"""
-        
-        # Generate with Imagen
-        response = imagen_model.generate_content([prompt, img])
-        
-        # Save generated image
-        generated_id = f"{product_id}_{style}_{datetime.now().strftime('%H%M%S')}"
-        output_path = OUTPUT_DIR / f"{generated_id}.png"
-        
-        # Extract image
-        if hasattr(response, 'parts'):
-            for part in response.parts:
-                if hasattr(part, 'inline_data'):
-                    with open(output_path, 'wb') as f:
-                        f.write(part.inline_data.data)
-                    
-                    return {
-                        "success": True,
-                        "product_id": product_id,
-                        "generated_id": generated_id,
-                        "style": style,
-                        "image_url": f"/api/generated/{generated_id}/image"
-                    }
-        
-        raise HTTPException(500, "No image generated")
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, str(e))
+async def generate_image(payload: GenerateImageRequest, background_tasks: BackgroundTasks):
+    """Start async jewelry image generation job"""
+    file_path = resolve_image_path(payload.product_id)
+    if not file_path:
+        raise HTTPException(404, "Product image not found")
+    normalize_category(payload.category)
+    normalize_gender(payload.gender)
+    normalize_style(payload.style)
+    normalize_render_preset(payload.render_preset)
+
+    job_id = uuid4().hex
+    with JOBS_LOCK:
+        JOBS[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "progress": 0,
+            "created_at": datetime.now().isoformat(),
+            "result": None,
+            "error": None
+        }
+
+    background_tasks.add_task(process_generation_job, job_id, payload)
+    return {
+        "success": True,
+        "job_id": job_id,
+        "status_url": f"/api/status/{job_id}"
+    }
+
+@app.get("/api/status/{job_id}")
+async def get_generation_status(job_id: str):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    return job
 
 @app.get("/api/generated/{generated_id}/image")
-async def get_generated_image(generated_id: str):
+async def get_generated_image(
+    generated_id: str,
+    quality: str = "4k",
+    download: bool = False
+):
     """Get generated image"""
+    if quality not in {"original", "4k"}:
+        raise HTTPException(400, "Invalid quality. Use 'original' or '4k'")
+
     file_path = OUTPUT_DIR / f"{generated_id}.png"
-    if file_path.exists():
-        return FileResponse(file_path)
-    raise HTTPException(404, "Generated image not found")
+    if quality == "4k":
+        file_path = OUTPUT_DIR / f"{generated_id}_4k.png"
+
+    if not file_path.exists():
+        raise HTTPException(404, "Generated image not found")
+
+    filename = f"{generated_id}_{quality}.png"
+    disposition = "attachment" if download else "inline"
+    return FileResponse(
+        file_path,
+        media_type="image/png",
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'}
+    )
 
 @app.get("/api/products/{product_id}")
 async def get_product(product_id: str):
