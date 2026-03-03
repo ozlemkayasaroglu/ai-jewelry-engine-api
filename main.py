@@ -147,7 +147,11 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "gemini_configured": bool(GEMINI_API_KEY)}
+    return {
+        "status": "healthy",
+        "gemini_configured": bool(GEMINI_API_KEY),
+        "nano_banana_enabled": NANO_BANANA_ENABLED
+    }
 
 @app.get("/test-gemini")
 async def test_gemini():
@@ -169,6 +173,14 @@ async def test_gemini():
             "error": str(e),
             "message": "Gemini API failed"
         }
+
+def resolve_image_path(product_id: str):
+    """Find product image file"""
+    for ext in ["png", "jpg", "jpeg"]:
+        path = UPLOAD_DIR / f"{product_id}.{ext}"
+        if path.exists():
+            return path
+    return None
 
 @app.post("/api/upload")
 async def upload_jewelry(file: UploadFile = File(...)):
