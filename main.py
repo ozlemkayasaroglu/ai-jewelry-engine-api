@@ -628,6 +628,21 @@ def prepare_base_image_1024(source_path: Path) -> Image.Image:
         canvas.paste(src, offset)
         return canvas
 
+def prepare_image_for_retouching(source_path: Path) -> Image.Image:
+    """Send the original image as-is for retouching jobs.
+    No white canvas padding — Gemini must see the real stand/background.
+    Only downscales if the image exceeds Gemini's max input side (1536px).
+    """
+    with Image.open(source_path) as img:
+        src = img.convert("RGB")
+        max_side = max(src.size)
+        if max_side > 1536:
+            scale = 1536 / max_side
+            new_w = max(1, int(round(src.size[0] * scale)))
+            new_h = max(1, int(round(src.size[1] * scale)))
+            src = src.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        return src.copy()
+
 def upscale_with_pillow(source_path: Path, target_path: Path) -> dict:
     with Image.open(source_path) as img:
         img = img.convert("RGB")
@@ -994,16 +1009,25 @@ def process_generation_job(job_id: str, payload: GenerateImageRequest):
             JOBS[job_id]["prompt_preview"] = prompt[:400]
             JOBS[job_id]["model"] = model_name
 
-        base_img = prepare_base_image_1024(file_path)
+        if style == "studio":
+            # Retouching: send original image FIRST (no white canvas padding),
+            # then the prompt — Gemini must see the real stand/background to remove it.
+            base_img = prepare_image_for_retouching(file_path)
+            content_parts = [base_img, prompt]
+        else:
+            # Editorial model shot: padded 1024×1024 square, prompt first.
+            base_img = prepare_base_image_1024(file_path)
+            content_parts = [prompt, base_img]
+
         try:
             response = image_model.generate_content(
-                [prompt, base_img],
+                content_parts,
                 generation_config=genai.GenerationConfig(
                     response_modalities=["IMAGE", "TEXT"]
                 )
             )
         except Exception:
-            response = image_model.generate_content([prompt, base_img])
+            response = image_model.generate_content(content_parts)
         base_img.close()
 
         with JOBS_LOCK:
