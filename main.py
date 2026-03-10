@@ -22,7 +22,7 @@ load_dotenv()
 app = FastAPI(
     title="Jewelry AI API",
     description="AI-powered jewelry visualization API using Gemini",
-    version="1.1.0"
+    version="1.2.0"
 )
 
 app.add_middleware(
@@ -211,7 +211,8 @@ def resolve_all_params(product_id: str, payload) -> tuple:
 
     category = normalize_category(raw_category) if raw_category else None
     if not category:
-        raise HTTPException(400, "Category could not be detected. Please provide it manually.")
+        print(f"[resolve_all_params] category detection failed for {product_id}, using fallback 'necklace'")
+        category = "necklace"
     gender = normalize_gender(raw_gender)
     return category, gender, skin_tone, stone_detail
 
@@ -518,7 +519,7 @@ def upscale_to_4k(source_path: Path, target_path: Path) -> dict:
 async def root():
     return {
         "status": "Jewelry AI API Running",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "endpoints": {
             "docs": "/docs",
             "upload": "POST /api/upload",
