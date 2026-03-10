@@ -420,27 +420,37 @@ TECHNICAL: 100mm macro lens, f/1.8–f/2.8, ISO 100, tack-sharp on jewelry, 8K p
 STRICTLY AVOID: blurry jewelry, distorted metal, wrong gold color, missing details, CGI-plastic look, overexposed highlights, flat lighting, cartoonish rendering, warped geometry, altered design, extra anatomy, full face visible in frame.""".strip()
 
     else:  # studio
-        return f"""Ultra-realistic luxury jewelry product photograph. Studio e-commerce style — Tiffany & Co. / Cartier product page aesthetic.
+        return f"""High-resolution luxury jewelry retouching for studio e-commerce.
 
-SUBJECT: {JEWELRY_DESC[category]}, presented alone — no model, no hands, jewelry only.
-BACKGROUND: Pure white seamless background with a soft natural shadow grounding the piece.
-LIGHTING: Professional three-point studio lighting — large soft-box key light, white fill card, subtle rim light to bring out gold sparkle and metal reflections.
-{STUDIO_COMPOSITIONS[category]}
-ATMOSPHERE: {vibe_note}Premium luxury product photography — clean, minimal, aspirational.
+CORE ACTION: Carefully remove any display stand, base, holder, or support visible under or around the {JEWELRY_DESC[category]}. Remove any attached product tags, price labels, or strings. Ensure zero trace of removal — no strings, attachment marks, holes, shadows from the stand, blurring, cloning artifacts, or surface distortions.
+
+══════════ STRICT POSITIONING CONSTRAINTS ══════════
+• The jewelry MUST remain in the EXACT same position, height, angle, perspective, framing, and proportions as in the source image.
+• Do NOT rotate, tilt, flip, resize, crop, or reshape the jewelry in any way.
+• Do NOT move the jewelry to a different location within the frame.
+════════════════════════════════════════════════════
 
 ══════════ ABSOLUTE PRODUCT INTEGRITY — ZERO TOLERANCE ══════════
-• The gold jewelry in the output MUST be 100% identical to the reference source image.
-• FORBIDDEN: any reshaping of links, missing stones, altered proportions, wrong gold color, simplified geometry.
-• Gold color: warm rich 18k–22k yellow gold — authentic metallic reflections and natural surface texture.
-• Reproduce EVERY detail: prongs, links, clasps, engravings, stone settings, surface texture, patina.
-• Gemstones: exact color, cut, facets, fire, brilliance, and transparency — no creative reinterpretation.
-• Do NOT upgrade, simplify, stylize or redesign — mirror the source jewelry with photographic accuracy.
+• Maintain 100% of the original gold color tone, surface reflections, metal textures, thickness, and light behavior.
+• Reproduce EVERY detail: prongs, links, clasps, engravings, stone settings, surface texture, patina — unchanged.
+• Gemstones: exact color, cut, facets, fire, brilliance, transparency — no alteration.
+• Do NOT retouch, enhance, stylize, or redesign the jewelry itself.
 ═════════════════════════════════════════════════════════════════
 
-TECHNICAL: 100mm macro lens, f/8–f/11, ISO 100, full depth-of-field sharpness, 8K photorealistic quality.
+GROUNDING: After stand removal, the {JEWELRY_DESC[category]} must rest naturally as if lightly touching the surface. It must NOT appear floating. Add only a subtle, realistic contact shadow directly beneath the piece.
+
+ENVIRONMENT:
+• Background: Pure seamless white (#FFFFFF), perfectly uniform — no gradients, no horizon line, no vignette.
+• Lighting: Preserve the original soft, diffused studio lighting direction from the source image exactly.
+• Shadows: One subtle, realistic contact shadow beneath the jewelry only — nothing else.
+• Aesthetic: High-resolution luxury product photography — ultra-sharp focus, clean, minimal, premium e-commerce.
+
+{STUDIO_COMPOSITIONS[category]}
+
+TECHNICAL: 8K photorealistic output, full depth-of-field sharpness throughout.
 {stone_line}
 
-STRICTLY AVOID: blurry jewelry, distorted metal, wrong gold color, missing details, CGI-plastic look, gray or colored background, floating shadows, warped geometry, altered design.""".strip()
+STRICTLY AVOID: floating jewelry, visible stand artifacts, cloning marks, gray or colored background, artificial glow, over-retouching, any position or proportion change, warped geometry, altered design.""".strip()
 
 class GenerateImageRequest(BaseModel):
     product_id: str
