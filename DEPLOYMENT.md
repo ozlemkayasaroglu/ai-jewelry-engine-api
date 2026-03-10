@@ -198,6 +198,25 @@ curl -X POST https://your-app.com/api/upload \
 https://your-app.com/docs
 ```
 
+Yeni async image akışı için önerilen smoke test:
+
+```bash
+# Route/contract smoke test (real product_id gerekmez)
+python3 scripts/smoke_test_api.py --base-url https://your-app.com
+
+# End-to-end smoke test (gerçek product_id ile)
+python3 scripts/smoke_test_api.py \
+  --base-url https://your-app.com \
+  --product-id 20260302_224006 \
+  --poll-seconds 90
+```
+
+Bu script şu endpointleri doğrular:
+- `GET /health`
+- `GET /api/options`
+- `POST /api/generate/image`
+- `GET /api/status/{job_id}` (product_id verildiğinde)
+
 ---
 
 ## Sorun Giderme
