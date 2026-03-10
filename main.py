@@ -419,38 +419,22 @@ TECHNICAL: 100mm macro lens, f/1.8–f/2.8, ISO 100, tack-sharp on jewelry, 8K p
 
 STRICTLY AVOID: blurry jewelry, distorted metal, wrong gold color, missing details, CGI-plastic look, overexposed highlights, flat lighting, cartoonish rendering, warped geometry, altered design, extra anatomy, full face visible in frame.""".strip()
 
-    else:  # studio
-        return f"""High-resolution luxury jewelry retouching for studio e-commerce.
+    else:  # studio — exact retouching prompt, no dynamic additions
+        label = JEWELRY_DESC.get(category, "gold jewelry piece")
+        return f"""Task: High-resolution luxury jewelry retouching for "{label}".
 
-CORE ACTION: Carefully remove any display stand, base, holder, or support visible under or around the {JEWELRY_DESC[category]}. Remove any attached product tags, price labels, or strings. Ensure zero trace of removal — no strings, attachment marks, holes, shadows from the stand, blurring, cloning artifacts, or surface distortions.
+Core Action: Carefully remove the black display stand from under the object and any attached product tags/labels. Ensure zero trace of strings, attachment marks, holes, shadows, blurring, cloning artifacts, or surface distortions.
 
-══════════ STRICT POSITIONING CONSTRAINTS ══════════
-• The jewelry MUST remain in the EXACT same position, height, angle, perspective, framing, and proportions as in the source image.
-• Do NOT rotate, tilt, flip, resize, crop, or reshape the jewelry in any way.
-• Do NOT move the jewelry to a different location within the frame.
-════════════════════════════════════════════════════
+Strict Constraints:
+Positioning: The {label} must remain in the exact same position, height, angle, perspective, framing, and proportions. Do NOT rotate, tilt, flip, resize, or reshape.
+Preservation: Maintain 100% of the original gold color tone, surface reflections, metal textures, thickness, and light behavior.
+Grounding: After stand removal, the object must rest naturally as if lightly touching the surface. It must NOT look floating.
 
-══════════ ABSOLUTE PRODUCT INTEGRITY — ZERO TOLERANCE ══════════
-• Maintain 100% of the original gold color tone, surface reflections, metal textures, thickness, and light behavior.
-• Reproduce EVERY detail: prongs, links, clasps, engravings, stone settings, surface texture, patina — unchanged.
-• Gemstones: exact color, cut, facets, fire, brilliance, transparency — no alteration.
-• Do NOT retouch, enhance, stylize, or redesign the jewelry itself.
-═════════════════════════════════════════════════════════════════
-
-GROUNDING: After stand removal, the {JEWELRY_DESC[category]} must rest naturally as if lightly touching the surface. It must NOT appear floating. Add only a subtle, realistic contact shadow directly beneath the piece.
-
-ENVIRONMENT:
-• Background: Pure seamless white (#FFFFFF), perfectly uniform — no gradients, no horizon line, no vignette.
-• Lighting: Preserve the original soft, diffused studio lighting direction from the source image exactly.
-• Shadows: One subtle, realistic contact shadow beneath the jewelry only — nothing else.
-• Aesthetic: High-resolution luxury product photography — ultra-sharp focus, clean, minimal, premium e-commerce.
-
-{STUDIO_COMPOSITIONS[category]}
-
-TECHNICAL: 8K photorealistic output, full depth-of-field sharpness throughout.
-{stone_line}
-
-STRICTLY AVOID: floating jewelry, visible stand artifacts, cloning marks, gray or colored background, artificial glow, over-retouching, any position or proportion change, warped geometry, altered design.""".strip()
+Environment & Style:
+Background: Pure seamless white (#FFFFFF), uniform, no gradients, no horizon line, no vignette.
+Lighting: Maintain the original soft, diffused studio lighting direction.
+Shadows: Add only a subtle, realistic contact shadow directly beneath the object to ground it naturally.
+Aesthetic: High-resolution luxury product photography, ultra-sharp focus, clean, minimal, premium e-commerce look. No artificial glow, no over-retouching.""".strip()
 
 class GenerateImageRequest(BaseModel):
     product_id: str
