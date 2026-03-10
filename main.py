@@ -265,16 +265,38 @@ def build_prompt(
         "unisex": "modern neutral styling",
     }
     style_map = {
-        "model": "luxury editorial macro on model",
-        "studio": "luxury e-commerce studio product shot",
+        "model": "luxury editorial macro on model - high-fashion campaign",
+        "studio": "luxury e-commerce studio product shot - clean minimal",
     }
     composition_line = CATEGORY_COMPOSITIONS[category] if style == "model" else (
         "Centered composition with crisp edges and soft grounded shadow."
     )
+    
+    model_guidance = {
+        "model": {
+            "face": "Face fully visible, show entire face with clear facial features. High-fashion portrait composition.",
+            "skin": "Porcelain glass skin texture - flawless, luminous, translucent complexion with soft glow. Glass-like skin finish with subtle reflectivity.",
+            "clothing": "Luxury fabric styling - premium materials visible: silk, cashmere, satin, velvet, or designer high-fashion garments. Rich fabric textures with natural drape.",
+            "makeup": "Professional high-fashion makeup - editorial quality styling, flawless complexion, defined brows, subtle contour, statement lip or neutral elegance.",
+            "atmosphere": "Editorial campaign atmosphere - luxury magazine aesthetic, sophisticated, cinematic, high-fashion campaign feel.",
+        },
+        "studio": {
+            "face": "Product-focused studio shot - jewelry as hero, clean presentation.",
+            "skin": "N/A - no model visible in studio style.",
+            "clothing": "N/A - no model visible in studio style.",
+            "makeup": "N/A - no model visible in studio style.",
+            "atmosphere": "Clean e-commerce studio atmosphere - professional product photography lighting.",
+        }
+    }
+    
     face_line = (
-        "Face strictly out of frame. Show only the relevant body area for wearing realism."
+        f"Model face: {model_guidance[style]['face']}. "
+        f"Skin: {model_guidance[style]['skin']}. "
+        f"Clothing: {model_guidance[style]['clothing']}. "
+        f"Makeup: {model_guidance[style]['makeup']}. "
+        f"Atmosphere: {model_guidance[style]['atmosphere']}."
         if style == "model"
-        else "No model body visible."
+        else "No model body visible - studio product shot."
     )
     stone_line = (
         f"Stone details: {stone_detail}. Keep exact stone cut, color, and settings."
@@ -290,7 +312,7 @@ Render mode: {style_map[style]}.
 Skin tone direction: {skin_tone}.
 Model guidance: {GENDER_GUIDANCE[gender]}.
 Composition: {composition_line}
-Framing rule: {face_line}
+Framing: {face_line}
 
 STRICT PRODUCT INTEGRITY:
 - Keep jewelry 1:1 identical to source product image.
