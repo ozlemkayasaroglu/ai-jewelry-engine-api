@@ -22,7 +22,7 @@ load_dotenv()
 app = FastAPI(
     title="Jewelry AI API",
     description="AI-powered jewelry visualization API using Gemini",
-    version="1.3.0"
+    version="1.4.0"
 )
 
 app.add_middleware(
@@ -256,6 +256,59 @@ def normalize_style(style: str) -> str:
         raise HTTPException(400, "Invalid style. Use one of: model, studio")
     return normalized
 
+# ── Category-specific editorial model shoot compositions ─────────────────────
+MODEL_COMPOSITIONS = {
+    "earrings": (
+        "COMPOSITION & POSE: Fingertips lightly touching — or hovering millimeters from — the earring, "
+        "hand raised gracefully to cheek level. The earring commands razor-sharp focus at center-frame. "
+        "Face behind: one eye, one eyebrow, and a soft cheekbone dissolve into warm bokeh — "
+        "impressionistic, never fully defined. "
+        "Hair swept completely back — not a single strand may shadow or cross the earring."
+    ),
+    "necklace": (
+        "COMPOSITION & POSE: One hand rests open on the chest, 1–2 fingertips delicately touching "
+        "or cradling the pendant — as though sensing its weight and warmth. "
+        "Chin and soft lips drift gently in from the top of frame, wrapped in warm bokeh — never a full face. "
+        "A single luminous highlight ribbon runs along the collarbone skin. "
+        "A whisper of silk or satin fabric enters from the lower corner — texture and luxury, not identity."
+    ),
+    "ring": (
+        "COMPOSITION & POSE: Hand pressed softly against the cheek or jawline — the ring is the tack-sharp hero of the frame. "
+        "Face behind: one eye, cheekbone, the curve of a jaw — all warm bokeh, impressionistic, never defined. "
+        "SKIN QUALITY: Porcelain glass-skin — luminously translucent, lit from within, perfectly even tone, zero visible pores. "
+        "A single soft-box from upper-left sculpts cinematic light; the gemstone catches a precise star-burst sparkle."
+    ),
+    "bracelet": (
+        "COMPOSITION & POSE: The opposite hand wraps gently around the wrist from beneath — "
+        "fingers curling underneath in a tender, instinctive gesture of care. "
+        "The bracelet is the tack-sharp focal point. Wrapping fingers are slightly softer — readable but secondary. "
+        "Arm dissolves upward into warm, painterly bokeh. "
+        "No face, no upper body — the gesture alone carries the full emotion and story."
+    ),
+}
+
+# ── Category-specific studio / e-commerce compositions ───────────────────────
+STUDIO_COMPOSITIONS = {
+    "earrings": (
+        "COMPOSITION: Both earrings displayed as a matching pair, angled 10–15° to show dimensionality. "
+        "Centered on the surface with a crisp, thin natural drop shadow beneath each. "
+        "All-around tack-sharp focus from front post to backing."
+    ),
+    "necklace": (
+        "COMPOSITION: Necklace arranged in a perfect graceful curve or gentle S-shape, pendant centered and prominent. "
+        "Slight elevation on one side for natural depth. A thin, soft shadow grounds the chain."
+    ),
+    "ring": (
+        "COMPOSITION: Ring standing upright or at a 15° dynamic tilt revealing both the profile and the full stone face. "
+        "Crisp minimal drop shadow beneath. Complete depth-of-field sharpness throughout."
+    ),
+    "bracelet": (
+        "COMPOSITION: Bracelet in an open oval or perfect circle, clasp discreetly at the base. "
+        "Slight elevation creates dimensional shadow revealing depth. Full all-around tack-sharp focus."
+    ),
+}
+
+
 def _vibe_scene(vibe: str) -> dict:
     """Map aesthetic_vibe keywords to scene/lighting/atmosphere descriptors."""
     vibe_lower = vibe.lower() if vibe else ""
@@ -324,12 +377,6 @@ def build_prompt(
         "earrings": "solid 18k gold earrings",
         "necklace": "solid 18k gold necklace",
     }
-    CATEGORY_CROP = {
-        "earrings": "extreme close-up macro of earlobe and lower jawline only — no face in frame, face strictly excluded",
-        "necklace": "close-up macro of décolletage, collarbone and neck — no face in frame, face strictly excluded",
-        "ring":     "macro of hand and fingers in an elegant, relaxed natural pose — no face in frame",
-        "bracelet": "macro of wrist and forearm in a graceful, relaxed pose — no face in frame",
-    }
     GENDER_BODY = {
         "female":  "slender elegant female model",
         "male":    "refined masculine male model",
@@ -349,12 +396,14 @@ def build_prompt(
         return f"""Ultra-realistic luxury jewelry editorial photograph. Shot in the style of a Vogue or Harper's Bazaar campaign.
 
 SUBJECT: {JEWELRY_DESC[category]} worn on a {GENDER_BODY[gender]}.
-CROP & FRAMING: {CATEGORY_CROP[category]}.
-SKIN: {skin_tone} skin tone — porcelain-smooth, flawless glass-skin texture with luminous translucency and subtle natural glow.
 SCENE: {vibe["scene"]}.
 LIGHTING: {vibe["lighting"]}.
-BACKGROUND: Shallow depth of field, f/1.8 macro — jewelry stays tack-sharp, background melts into painterly bokeh.
 ATMOSPHERE: {vibe_note}{vibe["atmosphere"]}.
+
+{MODEL_COMPOSITIONS[category]}
+
+SKIN: {skin_tone} skin tone — porcelain-smooth, flawless glass-skin texture with luminous translucency and subtle natural glow.
+BACKGROUND: Shallow depth of field, f/1.8 macro — jewelry stays razor-sharp, background melts into painterly bokeh.
 
 ══════════ ABSOLUTE PRODUCT INTEGRITY — ZERO TOLERANCE ══════════
 • The gold jewelry in the output MUST be 100% identical to the reference source image.
@@ -368,7 +417,7 @@ ATMOSPHERE: {vibe_note}{vibe["atmosphere"]}.
 TECHNICAL: 100mm macro lens, f/1.8–f/2.8, ISO 100, tack-sharp on jewelry, 8K photorealistic quality.
 {stone_line}
 
-STRICTLY AVOID: blurry jewelry, distorted metal, wrong gold color, missing details, CGI-plastic look, overexposed highlights, flat lighting, cartoonish rendering, warped geometry, altered design, extra anatomy, face in frame.""".strip()
+STRICTLY AVOID: blurry jewelry, distorted metal, wrong gold color, missing details, CGI-plastic look, overexposed highlights, flat lighting, cartoonish rendering, warped geometry, altered design, extra anatomy, full face visible in frame.""".strip()
 
     else:  # studio
         return f"""Ultra-realistic luxury jewelry product photograph. Studio e-commerce style — Tiffany & Co. / Cartier product page aesthetic.
@@ -376,7 +425,7 @@ STRICTLY AVOID: blurry jewelry, distorted metal, wrong gold color, missing detai
 SUBJECT: {JEWELRY_DESC[category]}, presented alone — no model, no hands, jewelry only.
 BACKGROUND: Pure white seamless background with a soft natural shadow grounding the piece.
 LIGHTING: Professional three-point studio lighting — large soft-box key light, white fill card, subtle rim light to bring out gold sparkle and metal reflections.
-COMPOSITION: Jewelry centered with a subtle 15° dynamic tilt, sharp all-around focus, crisp clean edges, minimal soft shadow.
+{STUDIO_COMPOSITIONS[category]}
 ATMOSPHERE: {vibe_note}Premium luxury product photography — clean, minimal, aspirational.
 
 ══════════ ABSOLUTE PRODUCT INTEGRITY — ZERO TOLERANCE ══════════
@@ -411,6 +460,114 @@ class GeneratePromptRequest(BaseModel):
     skin_tone: str = ""
     stone_detail: str = ""
     aesthetic_vibe: str = ""
+
+class GenerateSeoRequest(BaseModel):
+    product_id: str
+
+def build_specs_table_html(specs: dict) -> str:
+    """Build a WooCommerce-compatible HTML product specs table from a specs dict."""
+    FIELD_ORDER = [
+        ("seri",      "Seri"),
+        ("model",     "Model"),
+        ("ayar",      "Ayar"),
+        ("materyal",  "Materyal"),
+        ("tas_turu",  "Taş Türü"),
+        ("agirlik",   "Ağırlık"),
+        ("urun_tipi", "Ürün Tipi"),
+        ("cinsiyet",  "Cinsiyet"),
+        ("kargo",     "Kargo"),
+    ]
+    rows = ""
+    for key, label in FIELD_ORDER:
+        value = specs.get(key) or "-"
+        rows += (
+            f'\n<tr>'
+            f'<td style="border:1px solid #ddd;padding:10px;font-weight:bold;">{label}</td>'
+            f'<td style="border:1px solid #ddd;padding:10px;">{value}</td>'
+            f'</tr>'
+        )
+    return (
+        '<table style="width:100%;border-collapse:collapse;margin:20px 0;font-family:Arial,sans-serif;">\n'
+        '<thead>\n'
+        '<tr style="background-color:#f2f2f2;">\n'
+        '<th style="border:1px solid #ddd;padding:12px;text-align:left;">Özellik</th>\n'
+        '<th style="border:1px solid #ddd;padding:12px;text-align:left;">Bilgi</th>\n'
+        '</tr>\n'
+        '</thead>\n'
+        f'<tbody>{rows}\n</tbody>\n'
+        '</table>'
+    )
+
+
+def generate_seo_content(product_id: str) -> dict:
+    """Generate WooCommerce + RankMath SEO content in Turkish using Gemini."""
+    import re as _re
+
+    metadata_path = UPLOAD_DIR / f"{product_id}.json"
+    if not metadata_path.exists():
+        raise HTTPException(404, "Product not found")
+
+    with open(metadata_path) as f:
+        metadata = json.load(f)
+
+    detected    = metadata.get("detected_params", {}) or {}
+    name        = detected.get("name")        or "Altın Takı"
+    category    = detected.get("category")    or "necklace"
+    gender      = detected.get("gender")      or "female"
+    stone_detail = detected.get("stone_detail") or ""
+
+    CATEGORY_TR = {"earrings": "küpe", "necklace": "kolye", "ring": "yüzük", "bracelet": "bileklik"}
+    GENDER_TR   = {"female": "Kadın", "male": "Erkek", "child": "Çocuk", "unisex": "Uniseks"}
+
+    category_tr = CATEGORY_TR.get(category, category)
+    gender_tr   = GENDER_TR.get(gender, gender)
+    stone_info  = f", taş: {stone_detail}" if stone_detail else ""
+
+    prompt_text = (
+        f'Bu mücevher ürünü için WooCommerce + RankMath SEO içeriği üret. Tamamen Türkçe olacak.\n'
+        f'Ürün: "{name}", tür: {category_tr}, cinsiyet: {gender_tr}{stone_info}\n\n'
+        'SADECE şu JSON objesini döndür:\n'
+        '{\n'
+        '  "focus_keyword": "ana SEO anahtar kelimesi (ör. \'14 ayar altın kolye kadın\'), max 50 karakter",\n'
+        '  "meta_title": "SEO meta başlığı — max 60 karakter, marka+ürün+ayar formatında",\n'
+        '  "meta_description": "RankMath meta açıklaması — max 155 karakter, anahtar kelimeyi içermeli, satın almaya teşvik etmeli",\n'
+        '  "url_slug": "woocommerce url slug — küçük harf, tire ile ayrılmış, Türkçe karakter kullanma (ç→c, ş→s, ı→i, ğ→g, ö→o, ü→u)",\n'
+        '  "product_description": "2–3 paragraf lüks ürün açıklaması Türkçe, WooCommerce için HTML <p> etiketleriyle. Duygusal, lüks marka tonu.",\n'
+        '  "specs": {\n'
+        '    "seri": "tasarıma uygun yaratıcı seri adı (ör. Celeste Serisi, Aurora Serisi, Lumina Serisi)",\n'
+        f'    "model": "{name}",\n'
+        '    "ayar": "14 Ayar Altın veya 18 Ayar Altın (görselden tahmin et; emin değilsen 14 Ayar Altın yaz)",\n'
+        '    "materyal": "Altın",\n'
+        f'    "tas_turu": "Türkçe taş türü{(chr(32) + stone_detail[:30]) if stone_detail else " veya Taşsız"}",\n'
+        '    "agirlik": "gram cinsinden tahmini ağırlık (ör. \'2,14 gr\') veya \'- gr\'",\n'
+        f'    "urun_tipi": "Türkçe spesifik ürün tipi (ör. \'Sarkıt Küpe\', \'Kalp Kolye\', \'Tektaş Yüzük\', \'Zincir Bileklik\')",\n'
+        f'    "cinsiyet": "{gender_tr}",\n'
+        '    "kargo": "Ücretsiz Sigortalı Kargo"\n'
+        '  }\n'
+        '}\n'
+        'ÖNEMLİ: Sadece ham JSON objesi döndür. Markdown, kod bloğu veya açıklama ekleme.'
+    )
+
+    # Pass image for context (karat estimation, weight, type refinement)
+    file_path = resolve_image_path(product_id)
+    if file_path:
+        img = Image.open(file_path)
+        response = model.generate_content([img, prompt_text])
+    else:
+        response = model.generate_content([prompt_text])
+
+    raw = response.text.strip()
+    raw = _re.sub(r'^```(?:json)?\s*', '', raw, flags=_re.MULTILINE)
+    raw = _re.sub(r'```\s*$', '', raw, flags=_re.MULTILINE)
+    raw = raw.strip()
+    json_match = _re.search(r'\{.*\}', raw, _re.DOTALL)
+    if json_match:
+        raw = json_match.group()
+
+    seo = json.loads(raw)
+    seo["specs_html"] = build_specs_table_html(seo.get("specs", {}))
+    return seo
+
 
 def normalize_render_preset(render_preset: str) -> str:
     normalized = render_preset.strip().lower()
@@ -568,7 +725,7 @@ def upscale_to_4k(source_path: Path, target_path: Path) -> dict:
 async def root():
     return {
         "status": "Jewelry AI API Running",
-        "version": "1.3.0",
+        "version": "1.4.0",
         "endpoints": {
             "docs": "/docs",
             "upload": "POST /api/upload",
@@ -850,6 +1007,22 @@ async def generate_image(payload: GenerateImageRequest, background_tasks: Backgr
         "job_id": job_id,
         "status_url": f"/api/status/{job_id}"
     }
+
+@app.post("/api/generate/seo")
+async def generate_seo(payload: GenerateSeoRequest):
+    """Generate WooCommerce + RankMath SEO content for a product"""
+    try:
+        seo = generate_seo_content(payload.product_id)
+        return {
+            "success": True,
+            "product_id": payload.product_id,
+            "seo": seo
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
 
 @app.get("/api/status/{job_id}")
 async def get_generation_status(job_id: str):
