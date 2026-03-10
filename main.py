@@ -154,33 +154,40 @@ JOBS_LOCK = threading.Lock()
 
 def analyze_image_params(file_path: Path) -> dict:
     """Use Gemini to auto-detect all generation parameters from the jewelry image"""
+    import re as _re
     try:
         img = Image.open(file_path)
         response = model.generate_content([
-            'Analyze this jewelry product image and return a JSON object with exactly these fields:\n'
+            'Analyze this jewelry product image and return ONLY a JSON object with exactly these fields:\n'
             '{\n'
             '  "category": one of ["earrings", "necklace", "ring", "bracelet"],\n'
             '  "gender": one of ["female", "male", "child", "unisex"] based on jewelry design style,\n'
-            '  "skin_tone": suggested model skin tone as a short phrase (e.g. "warm medium", "fair", "deep warm", "light"),\n'
+            '  "skin_tone": suggested model skin tone as a short phrase (e.g. "warm medium", "fair", "deep warm"),\n'
             '  "stone_detail": describe any gemstones visible (color, cut, type), or empty string if none\n'
             '}\n'
-            'Return ONLY valid JSON, no markdown, no explanation.',
+            'IMPORTANT: Return ONLY the raw JSON object. No markdown, no code fences, no explanation.',
             img
         ])
         raw = response.text.strip()
-        # strip possible markdown code fences
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        params = json.loads(raw.strip())
-        # validate known fields
+        # Strip markdown code fences robustly
+        raw = _re.sub(r'^```(?:json)?\s*', '', raw, flags=_re.MULTILINE)
+        raw = _re.sub(r'```\s*$', '', raw, flags=_re.MULTILINE)
+        raw = raw.strip()
+        # Extract first JSON object found in response
+        json_match = _re.search(r'\{.*\}', raw, _re.DOTALL)
+        if json_match:
+            raw = json_match.group()
+        params = json.loads(raw)
+        # Validate and sanitize fields
         if params.get("category") not in ALLOWED_CATEGORIES:
             params["category"] = None
         if params.get("gender") not in ALLOWED_GENDERS:
             params["gender"] = "female"
+        if not params.get("skin_tone"):
+            params["skin_tone"] = "warm medium"
         return params
-    except Exception:
+    except Exception as e:
+        print(f"[analyze_image_params] failed: {e}")
         return {}
 
 def resolve_all_params(product_id: str, payload) -> tuple:
@@ -756,9 +763,10 @@ def process_generation_job(job_id: str, payload: GenerateImageRequest):
                 "resolution": resolution_info
             }
     except Exception as exc:
+        error_msg = exc.detail if hasattr(exc, "detail") else str(exc)
         with JOBS_LOCK:
             JOBS[job_id]["status"] = "failed"
-            JOBS[job_id]["error"] = str(exc)
+            JOBS[job_id]["error"] = error_msg
 
 @app.post("/api/generate/image")
 async def generate_image(payload: GenerateImageRequest, background_tasks: BackgroundTasks):
