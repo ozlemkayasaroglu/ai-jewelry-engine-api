@@ -260,91 +260,77 @@ def build_prompt(
     skin_tone: str,
     stone_detail: str = ""
 ) -> str:
-    category_map = {
-        "bracelet": "high-end solid gold bracelet/bangle",
-        "ring": "high-end solid gold ring",
-        "earrings": "high-end solid gold earrings",
-        "necklace": "high-end solid gold necklace",
+    JEWELRY_DESC = {
+        "bracelet": "solid 18k gold bracelet/bangle",
+        "ring":     "solid 18k gold ring",
+        "earrings": "solid 18k gold earrings",
+        "necklace": "solid 18k gold necklace",
     }
-    gender_map = {
-        "female": "elegant feminine styling",
-        "male": "minimal masculine styling",
-        "child": "age-appropriate child styling",
-        "unisex": "modern neutral styling",
+    CATEGORY_CROP = {
+        "earrings": "extreme close-up macro of earlobe and lower jawline only — no face in frame, face strictly excluded",
+        "necklace": "close-up macro of décolletage, collarbone and neck — no face in frame, face strictly excluded",
+        "ring":     "macro of hand and fingers in an elegant, relaxed natural pose — no face in frame",
+        "bracelet": "macro of wrist and forearm in a graceful, relaxed pose — no face in frame",
     }
-    style_map = {
-        "model": "luxury editorial macro on model - high-fashion campaign",
-        "studio": "luxury e-commerce studio product shot - clean minimal",
+    GENDER_BODY = {
+        "female":  "slender elegant female model",
+        "male":    "refined masculine male model",
+        "child":   "gentle age-appropriate child model",
+        "unisex":  "gender-neutral modern model",
     }
-    composition_line = CATEGORY_COMPOSITIONS[category] if style == "model" else (
-        "Centered composition with crisp edges and soft grounded shadow."
-    )
-    
-    model_guidance = {
-        "model": {
-            "face": "Face fully visible, show entire face with clear facial features. High-fashion portrait composition.",
-            "skin": "Porcelain glass skin texture - flawless, luminous, translucent complexion with soft glow. Glass-like skin finish with subtle reflectivity.",
-            "clothing": "Luxury fabric styling - premium materials visible: silk, cashmere, satin, velvet, or designer high-fashion garments. Rich fabric textures with natural drape.",
-            "makeup": "Professional high-fashion makeup - editorial quality styling, flawless complexion, defined brows, subtle contour, statement lip or neutral elegance.",
-            "atmosphere": "Editorial campaign atmosphere - luxury magazine aesthetic, sophisticated, cinematic, high-fashion campaign feel.",
-        },
-        "studio": {
-            "face": "Product-focused studio shot - jewelry as hero, clean presentation.",
-            "skin": "N/A - no model visible in studio style.",
-            "clothing": "N/A - no model visible in studio style.",
-            "makeup": "N/A - no model visible in studio style.",
-            "atmosphere": "Clean e-commerce studio atmosphere - professional product photography lighting.",
-        }
-    }
-    
-    face_line = (
-        f"Model face: {model_guidance[style]['face']}. "
-        f"Skin: {model_guidance[style]['skin']}. "
-        f"Clothing: {model_guidance[style]['clothing']}. "
-        f"Makeup: {model_guidance[style]['makeup']}. "
-        f"Atmosphere: {model_guidance[style]['atmosphere']}."
-        if style == "model"
-        else "No model body visible - studio product shot."
-    )
     stone_line = (
-        f"Stone details: {stone_detail}. Keep exact stone cut, color, and settings."
+        f"STONES: Reproduce exactly — {stone_detail}. Keep cut, color saturation, fire, transparency and setting 1:1."
         if stone_detail.strip()
-        else "Preserve all gemstone details exactly from source."
+        else "STONES: Reproduce all visible gemstone details exactly as in source — color, cut, fire, transparency, settings."
     )
 
-    return f"""
-Ultra realistic jewelry product photography.
-Subject: {category_map[category]}.
-Styling: {gender_map[gender]}.
-Render mode: {style_map[style]}.
-Skin tone direction: {skin_tone}.
-Model guidance: {GENDER_GUIDANCE[gender]}.
-Composition: {composition_line}
-Framing: {face_line}
+    if style == "model":
+        return f"""Ultra-realistic luxury jewelry editorial photograph. Shot in the style of a Vogue or Harper's Bazaar campaign.
 
-STRICT PRODUCT INTEGRITY:
-- Keep jewelry 1:1 identical to source product image.
-- No redesign, no distortion, no warped geometry, no missing elements.
-- Accurate gold color tone, accurate gemstone sparkle, realistic metal reflections.
-- Preserve prongs, links, clasps, stone count, dimensions, and engraving details.
+SUBJECT: {JEWELRY_DESC[category]} worn on a {GENDER_BODY[gender]}.
+CROP & FRAMING: {CATEGORY_CROP[category]}.
+SKIN: {skin_tone} skin tone — porcelain-smooth, flawless glass-skin texture with luminous translucency and subtle natural glow.
+STYLING: Subtle glimpse of luxurious fabric in background — silk, satin or cashmere, softly blurred.
+LIGHTING: Cinematic three-point lighting — diffused key light from 45° above, warm golden rim light to ignite jewelry sparkle, gentle fill to eliminate harsh shadows.
+BACKGROUND: Shallow depth of field, f/1.8 macro, soft cream-to-charcoal gradient bokeh — jewelry stays tack-sharp, background melts away.
+ATMOSPHERE: High-fashion luxury campaign — cinematic, aspirational, sophisticated, magazine-editorial aesthetic.
 
-VISUAL QUALITY:
-- macro lens 100mm
-- sharp focus
-- natural luxury lighting
-- bright but controlled highlights
-- soft shadow
-- no artificial glow
-- white seamless background for studio style
-- premium creamy bokeh for model style
-- base generation must be optimized for 1024x1024 speed path
+══════════ ABSOLUTE PRODUCT INTEGRITY — ZERO TOLERANCE ══════════
+• The gold jewelry in the output MUST be 100% identical to the reference source image.
+• FORBIDDEN: any reshaping of links, missing stones, altered proportions, wrong gold color, simplified geometry.
+• Gold color: warm rich 18k–22k yellow gold — authentic metallic reflections and natural surface texture.
+• Reproduce EVERY detail: prongs, links, clasps, engravings, stone settings, surface texture, patina.
+• Gemstones: exact color, cut, facets, fire, brilliance, and transparency — no creative reinterpretation.
+• Do NOT upgrade, simplify, stylize or redesign — mirror the source jewelry with photographic accuracy.
+═════════════════════════════════════════════════════════════════
 
-NEGATIVE PROMPT:
-blurry, overexposed, fake gold, cartoonish, distorted shape, extra fingers,
-anatomy errors, low resolution, plastic texture, noisy background, bad reflections
-
+TECHNICAL: 100mm macro lens, f/1.8–f/2.8, ISO 100, tack-sharp on jewelry, 8K photorealistic quality.
 {stone_line}
-""".strip()
+
+STRICTLY AVOID: blurry jewelry, distorted metal, wrong gold color, missing details, CGI-plastic look, overexposed highlights, flat lighting, cartoonish rendering, warped geometry, altered design, extra anatomy, face in frame.""".strip()
+
+    else:  # studio
+        return f"""Ultra-realistic luxury jewelry product photograph. Studio e-commerce style — Tiffany & Co. / Cartier product page aesthetic.
+
+SUBJECT: {JEWELRY_DESC[category]}, presented alone — no model, no hands, jewelry only.
+BACKGROUND: Pure white seamless background with a soft natural shadow grounding the piece.
+LIGHTING: Professional three-point studio lighting — large soft-box key light, white fill card, subtle rim light to bring out gold sparkle and metal reflections.
+COMPOSITION: Jewelry centered with a subtle 15° dynamic tilt, sharp all-around focus, crisp clean edges, minimal soft shadow.
+ATMOSPHERE: Premium luxury product photography — clean, minimal, aspirational.
+
+══════════ ABSOLUTE PRODUCT INTEGRITY — ZERO TOLERANCE ══════════
+• The gold jewelry in the output MUST be 100% identical to the reference source image.
+• FORBIDDEN: any reshaping of links, missing stones, altered proportions, wrong gold color, simplified geometry.
+• Gold color: warm rich 18k–22k yellow gold — authentic metallic reflections and natural surface texture.
+• Reproduce EVERY detail: prongs, links, clasps, engravings, stone settings, surface texture, patina.
+• Gemstones: exact color, cut, facets, fire, brilliance, and transparency — no creative reinterpretation.
+• Do NOT upgrade, simplify, stylize or redesign — mirror the source jewelry with photographic accuracy.
+═════════════════════════════════════════════════════════════════
+
+TECHNICAL: 100mm macro lens, f/8–f/11, ISO 100, full depth-of-field sharpness, 8K photorealistic quality.
+{stone_line}
+
+STRICTLY AVOID: blurry jewelry, distorted metal, wrong gold color, missing details, CGI-plastic look, gray or colored background, floating shadows, warped geometry, altered design.""".strip()
 
 class GenerateImageRequest(BaseModel):
     product_id: str
