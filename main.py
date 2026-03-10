@@ -22,7 +22,7 @@ load_dotenv()
 app = FastAPI(
     title="Jewelry AI API",
     description="AI-powered jewelry visualization API using Gemini",
-    version="1.2.0"
+    version="1.3.0"
 )
 
 app.add_middleware(
@@ -164,7 +164,8 @@ def analyze_image_params(file_path: Path) -> dict:
             '  "gender": one of ["female", "male", "child", "unisex"] based on jewelry design style,\n'
             '  "skin_tone": one of ["fair porcelain", "light warm", "light neutral", "warm medium", "medium olive", "medium tan", "deep warm", "rich deep"],\n'
             '  "stone_detail": describe any gemstones visible (color, cut, type), or empty string if none,\n'
-            '  "name": a short luxury product name in English, max 4 words (e.g. "Celestial Gold Ring", "Turquoise Drop Earrings", "Diamond Tennis Bracelet")\n'
+            '  "name": a short luxury product name in English, max 4 words (e.g. "Celestial Gold Ring", "Turquoise Drop Earrings", "Diamond Tennis Bracelet"),\n'
+            '  "aesthetic_vibe": describe the mood/aesthetic in 3-5 words that would suit this piece (e.g. "bohemian sunset warmth", "royal gala opulence", "minimalist morning calm", "ancient greek goddess", "urban chic edge", "romantic garden bloom")\n'
             '}\n'
             'IMPORTANT: Return ONLY the raw JSON object. No markdown, no code fences, no explanation.',
             img
@@ -192,7 +193,7 @@ def analyze_image_params(file_path: Path) -> dict:
         return {}
 
 def resolve_all_params(product_id: str, payload) -> tuple:
-    """Resolve category, gender, skin_tone, stone_detail from request or metadata fallback"""
+    """Resolve category, gender, skin_tone, stone_detail, aesthetic_vibe from request or metadata fallback"""
     detected = {}
     metadata_path = UPLOAD_DIR / f"{product_id}.json"
     if metadata_path.exists():
@@ -205,17 +206,18 @@ def resolve_all_params(product_id: str, payload) -> tuple:
         if file_path:
             detected = analyze_image_params(file_path)
 
-    raw_category = detected.get("category") or payload.category or ""
-    raw_gender   = detected.get("gender")   or payload.gender   or "female"
-    skin_tone    = payload.skin_tone if payload.skin_tone else detected.get("skin_tone", "medium")
-    stone_detail = payload.stone_detail if payload.stone_detail else detected.get("stone_detail", "")
+    raw_category   = detected.get("category")       or payload.category       or ""
+    raw_gender     = detected.get("gender")         or payload.gender         or "female"
+    skin_tone      = payload.skin_tone      if payload.skin_tone      else detected.get("skin_tone", "medium")
+    stone_detail   = payload.stone_detail   if payload.stone_detail   else detected.get("stone_detail", "")
+    aesthetic_vibe = payload.aesthetic_vibe if payload.aesthetic_vibe else detected.get("aesthetic_vibe", "")
 
     category = normalize_category(raw_category) if raw_category else None
     if not category:
         print(f"[resolve_all_params] category detection failed for {product_id}, using fallback 'necklace'")
         category = "necklace"
     gender = normalize_gender(raw_gender)
-    return category, gender, skin_tone, stone_detail
+    return category, gender, skin_tone, stone_detail, aesthetic_vibe
 
 def calculate_hash(file_path: Path) -> str:
     """Calculate SHA-256 hash of file"""
@@ -254,12 +256,67 @@ def normalize_style(style: str) -> str:
         raise HTTPException(400, "Invalid style. Use one of: model, studio")
     return normalized
 
+def _vibe_scene(vibe: str) -> dict:
+    """Map aesthetic_vibe keywords to scene/lighting/atmosphere descriptors."""
+    vibe_lower = vibe.lower() if vibe else ""
+
+    if any(k in vibe_lower for k in ["bohem", "sunset", "warm", "golden hour", "earth"]):
+        return {
+            "scene": "sun-drenched terracotta balcony with warm amber tones and dried wildflowers softly blurred behind",
+            "lighting": "warm golden-hour side lighting at 30° — honeyed amber tones kissing the metal, deep rich shadows",
+            "atmosphere": "bohemian sunset warmth — wanderlust, free-spirited, sun-kissed luxury",
+        }
+    if any(k in vibe_lower for k in ["royal", "gala", "opulen", "regal", "imperial", "baroque"]):
+        return {
+            "scene": "deep midnight-blue velvet drape with subtle brocade texture receding into darkness",
+            "lighting": "dramatic chiaroscuro — single focused key light from above left, dark moody shadows, theatrical contrast",
+            "atmosphere": "royal gala opulence — aristocratic, commanding, old-world grandeur",
+        }
+    if any(k in vibe_lower for k in ["minimal", "morning", "calm", "clean", "nordic", "zen"]):
+        return {
+            "scene": "pale linen textile surface with soft architectural shadows and clean negative space",
+            "lighting": "soft diffused northern-window light — even, shadow-less, whisper-quiet",
+            "atmosphere": "minimalist morning calm — breathable, serene, Scandinavian restraint",
+        }
+    if any(k in vibe_lower for k in ["greek", "goddess", "ancient", "roman", "marble", "olymp"]):
+        return {
+            "scene": "cool Carrara marble surface with classical column texture barely visible in soft bokeh background",
+            "lighting": "cool Mediterranean daylight — bright, pure, classical balance of highlights and mid-tones",
+            "atmosphere": "ancient goddess majesty — timeless, mythological, sculptural",
+        }
+    if any(k in vibe_lower for k in ["urban", "chic", "edge", "street", "modern", "sleek"]):
+        return {
+            "scene": "polished dark concrete surface with subtle city-light reflections and cool steel tones",
+            "lighting": "sharp directional artificial light — crisp high-contrast, cool white with neon accent rim",
+            "atmosphere": "urban chic edge — contemporary, bold, metropolitan sophistication",
+        }
+    if any(k in vibe_lower for k in ["romantic", "garden", "bloom", "floral", "spring", "rose"]):
+        return {
+            "scene": "blush-pink petal scatter on soft ivory silk with garden greenery dissolving into bokeh",
+            "lighting": "soft romantic backlight through sheer curtain — luminous halo, pastel-warm, dreamlike",
+            "atmosphere": "romantic garden bloom — tender, feminine, fresh-blossom luxury",
+        }
+    if any(k in vibe_lower for k in ["celestial", "cosmic", "night", "mystic", "dark", "moon"]):
+        return {
+            "scene": "deep indigo velvet with subtle star-dust shimmer dusted across the surface",
+            "lighting": "cool silver rim light from above — moonlit glow, ethereal highlights, deep shadowed mystery",
+            "atmosphere": "celestial mystique — otherworldly, enigmatic, night-sky fantasy",
+        }
+    # Default: timeless luxury
+    return {
+        "scene": "neutral warm-ivory silk surface with a soft organic gradient dissolving to darkness",
+        "lighting": "cinematic three-point lighting — diffused key at 45° above, warm golden rim, gentle fill to open shadows",
+        "atmosphere": "timeless luxury — elegant, aspirational, high-fashion editorial",
+    }
+
+
 def build_prompt(
     category: str,
     gender: str,
     style: str,
     skin_tone: str,
-    stone_detail: str = ""
+    stone_detail: str = "",
+    aesthetic_vibe: str = ""
 ) -> str:
     JEWELRY_DESC = {
         "bracelet": "solid 18k gold bracelet/bangle",
@@ -285,16 +342,19 @@ def build_prompt(
         else "STONES: Reproduce all visible gemstone details exactly as in source — color, cut, fire, transparency, settings."
     )
 
+    vibe = _vibe_scene(aesthetic_vibe)
+    vibe_note = f"AESTHETIC VIBE: {aesthetic_vibe} — " if aesthetic_vibe.strip() else ""
+
     if style == "model":
         return f"""Ultra-realistic luxury jewelry editorial photograph. Shot in the style of a Vogue or Harper's Bazaar campaign.
 
 SUBJECT: {JEWELRY_DESC[category]} worn on a {GENDER_BODY[gender]}.
 CROP & FRAMING: {CATEGORY_CROP[category]}.
 SKIN: {skin_tone} skin tone — porcelain-smooth, flawless glass-skin texture with luminous translucency and subtle natural glow.
-STYLING: Subtle glimpse of luxurious fabric in background — silk, satin or cashmere, softly blurred.
-LIGHTING: Cinematic three-point lighting — diffused key light from 45° above, warm golden rim light to ignite jewelry sparkle, gentle fill to eliminate harsh shadows.
-BACKGROUND: Shallow depth of field, f/1.8 macro, soft cream-to-charcoal gradient bokeh — jewelry stays tack-sharp, background melts away.
-ATMOSPHERE: High-fashion luxury campaign — cinematic, aspirational, sophisticated, magazine-editorial aesthetic.
+SCENE: {vibe["scene"]}.
+LIGHTING: {vibe["lighting"]}.
+BACKGROUND: Shallow depth of field, f/1.8 macro — jewelry stays tack-sharp, background melts into painterly bokeh.
+ATMOSPHERE: {vibe_note}{vibe["atmosphere"]}.
 
 ══════════ ABSOLUTE PRODUCT INTEGRITY — ZERO TOLERANCE ══════════
 • The gold jewelry in the output MUST be 100% identical to the reference source image.
@@ -317,7 +377,7 @@ SUBJECT: {JEWELRY_DESC[category]}, presented alone — no model, no hands, jewel
 BACKGROUND: Pure white seamless background with a soft natural shadow grounding the piece.
 LIGHTING: Professional three-point studio lighting — large soft-box key light, white fill card, subtle rim light to bring out gold sparkle and metal reflections.
 COMPOSITION: Jewelry centered with a subtle 15° dynamic tilt, sharp all-around focus, crisp clean edges, minimal soft shadow.
-ATMOSPHERE: Premium luxury product photography — clean, minimal, aspirational.
+ATMOSPHERE: {vibe_note}Premium luxury product photography — clean, minimal, aspirational.
 
 ══════════ ABSOLUTE PRODUCT INTEGRITY — ZERO TOLERANCE ══════════
 • The gold jewelry in the output MUST be 100% identical to the reference source image.
@@ -340,6 +400,7 @@ class GenerateImageRequest(BaseModel):
     style: str = "model"
     skin_tone: str = ""
     stone_detail: str = ""
+    aesthetic_vibe: str = ""
     render_preset: str = "hero"
 
 class GeneratePromptRequest(BaseModel):
@@ -349,6 +410,7 @@ class GeneratePromptRequest(BaseModel):
     style: str = "model"
     skin_tone: str = ""
     stone_detail: str = ""
+    aesthetic_vibe: str = ""
 
 def normalize_render_preset(render_preset: str) -> str:
     normalized = render_preset.strip().lower()
@@ -506,7 +568,7 @@ def upscale_to_4k(source_path: Path, target_path: Path) -> dict:
 async def root():
     return {
         "status": "Jewelry AI API Running",
-        "version": "1.2.0",
+        "version": "1.3.0",
         "endpoints": {
             "docs": "/docs",
             "upload": "POST /api/upload",
@@ -621,7 +683,7 @@ async def generate_prompt(payload: GeneratePromptRequest):
         if not file_path:
             raise HTTPException(404, "Product image not found")
 
-        category, gender, skin_tone, stone_detail = resolve_all_params(payload.product_id, payload)
+        category, gender, skin_tone, stone_detail, aesthetic_vibe = resolve_all_params(payload.product_id, payload)
         style = normalize_style(payload.style)
 
         prompt_text = build_prompt(
@@ -629,7 +691,8 @@ async def generate_prompt(payload: GeneratePromptRequest):
             gender=gender,
             style=style,
             skin_tone=skin_tone,
-            stone_detail=stone_detail
+            stone_detail=stone_detail,
+            aesthetic_vibe=aesthetic_vibe
         )
 
         prompt_data = {
@@ -673,7 +736,7 @@ def process_generation_job(job_id: str, payload: GenerateImageRequest):
         if not file_path:
             raise RuntimeError("Product image not found")
 
-        category, gender, skin_tone, stone_detail = resolve_all_params(payload.product_id, payload)
+        category, gender, skin_tone, stone_detail, aesthetic_vibe = resolve_all_params(payload.product_id, payload)
         style = normalize_style(payload.style)
         render_preset = normalize_render_preset(payload.render_preset)
         image_model, model_name = select_image_model(render_preset)
@@ -683,7 +746,8 @@ def process_generation_job(job_id: str, payload: GenerateImageRequest):
             gender=gender,
             style=style,
             skin_tone=skin_tone,
-            stone_detail=stone_detail
+            stone_detail=stone_detail,
+            aesthetic_vibe=aesthetic_vibe
         )
 
         with JOBS_LOCK:
