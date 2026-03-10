@@ -152,35 +152,55 @@ STYLE_ALIASES = {
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 
-def detect_category_from_image(file_path: Path) -> str | None:
-    """Use Gemini to auto-detect jewelry category from image"""
+def analyze_image_params(file_path: Path) -> dict:
+    """Use Gemini to auto-detect all generation parameters from the jewelry image"""
     try:
         img = Image.open(file_path)
         response = model.generate_content([
-            "Look at this jewelry image and classify it. "
-            "Reply with ONLY one word from this list: earrings, necklace, ring, bracelet. "
-            "No other text, no punctuation.",
+            'Analyze this jewelry product image and return a JSON object with exactly these fields:\n'
+            '{\n'
+            '  "category": one of ["earrings", "necklace", "ring", "bracelet"],\n'
+            '  "gender": one of ["female", "male", "child", "unisex"] based on jewelry design style,\n'
+            '  "skin_tone": suggested model skin tone as a short phrase (e.g. "warm medium", "fair", "deep warm", "light"),\n'
+            '  "stone_detail": describe any gemstones visible (color, cut, type), or empty string if none\n'
+            '}\n'
+            'Return ONLY valid JSON, no markdown, no explanation.',
             img
         ])
-        detected = response.text.strip().lower()
-        if detected in ALLOWED_CATEGORIES:
-            return detected
+        raw = response.text.strip()
+        # strip possible markdown code fences
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        params = json.loads(raw.strip())
+        # validate known fields
+        if params.get("category") not in ALLOWED_CATEGORIES:
+            params["category"] = None
+        if params.get("gender") not in ALLOWED_GENDERS:
+            params["gender"] = "female"
+        return params
     except Exception:
-        pass
-    return None
+        return {}
 
-def resolve_category(product_id: str, category: str) -> str:
-    """Return category from request or fall back to metadata auto-detection"""
-    if category:
-        return normalize_category(category)
+def resolve_all_params(product_id: str, payload) -> tuple:
+    """Resolve category, gender, skin_tone, stone_detail from request or metadata fallback"""
+    detected = {}
     metadata_path = UPLOAD_DIR / f"{product_id}.json"
     if metadata_path.exists():
         with open(metadata_path) as f:
-            meta = json.load(f)
-        stored = meta.get("category")
-        if stored and stored in ALLOWED_CATEGORIES:
-            return stored
-    raise HTTPException(400, "Category could not be detected. Please provide it manually.")
+            detected = json.load(f).get("detected_params", {})
+
+    raw_category = payload.category or detected.get("category") or ""
+    raw_gender   = payload.gender   or detected.get("gender")   or "female"
+    skin_tone    = payload.skin_tone if payload.skin_tone else detected.get("skin_tone", "medium")
+    stone_detail = payload.stone_detail if payload.stone_detail else detected.get("stone_detail", "")
+
+    category = normalize_category(raw_category) if raw_category else None
+    if not category:
+        raise HTTPException(400, "Category could not be detected. Please provide it manually.")
+    gender = normalize_gender(raw_gender)
+    return category, gender, skin_tone, stone_detail
 
 def calculate_hash(file_path: Path) -> str:
     """Calculate SHA-256 hash of file"""
@@ -293,18 +313,18 @@ anatomy errors, low resolution, plastic texture, noisy background, bad reflectio
 class GenerateImageRequest(BaseModel):
     product_id: str
     category: str = ""
-    gender: str = "female"
+    gender: str = ""
     style: str = "model"
-    skin_tone: str = "medium"
+    skin_tone: str = ""
     stone_detail: str = ""
     render_preset: str = "hero"
 
 class GeneratePromptRequest(BaseModel):
     product_id: str
     category: str = ""
-    gender: str = "female"
+    gender: str = ""
     style: str = "model"
-    skin_tone: str = "medium"
+    skin_tone: str = ""
     stone_detail: str = ""
 
 def normalize_render_preset(render_preset: str) -> str:
@@ -543,8 +563,8 @@ async def upload_jewelry(file: UploadFile = File(...)):
         # Calculate hash
         file_hash = calculate_hash(file_path)
 
-        # Auto-detect category
-        detected_category = detect_category_from_image(file_path)
+        # Auto-detect all generation parameters
+        detected_params = analyze_image_params(file_path)
 
         # Save metadata
         metadata = {
@@ -554,7 +574,7 @@ async def upload_jewelry(file: UploadFile = File(...)):
             "format": img.format,
             "hash": file_hash,
             "uploaded_at": datetime.now().isoformat(),
-            "category": detected_category
+            "detected_params": detected_params
         }
         
         metadata_path = UPLOAD_DIR / f"{product_id}.json"
@@ -578,16 +598,15 @@ async def generate_prompt(payload: GeneratePromptRequest):
         if not file_path:
             raise HTTPException(404, "Product image not found")
 
-        category = resolve_category(payload.product_id, payload.category)
-        gender = normalize_gender(payload.gender)
+        category, gender, skin_tone, stone_detail = resolve_all_params(payload.product_id, payload)
         style = normalize_style(payload.style)
 
         prompt_text = build_prompt(
             category=category,
             gender=gender,
             style=style,
-            skin_tone=payload.skin_tone,
-            stone_detail=payload.stone_detail
+            skin_tone=skin_tone,
+            stone_detail=stone_detail
         )
 
         prompt_data = {
@@ -631,8 +650,7 @@ def process_generation_job(job_id: str, payload: GenerateImageRequest):
         if not file_path:
             raise RuntimeError("Product image not found")
 
-        category = resolve_category(payload.product_id, payload.category)
-        gender = normalize_gender(payload.gender)
+        category, gender, skin_tone, stone_detail = resolve_all_params(payload.product_id, payload)
         style = normalize_style(payload.style)
         render_preset = normalize_render_preset(payload.render_preset)
         image_model, model_name = select_image_model(render_preset)
@@ -641,8 +659,8 @@ def process_generation_job(job_id: str, payload: GenerateImageRequest):
             category=category,
             gender=gender,
             style=style,
-            skin_tone=payload.skin_tone,
-            stone_detail=payload.stone_detail
+            skin_tone=skin_tone,
+            stone_detail=stone_detail
         )
 
         with JOBS_LOCK:
@@ -722,7 +740,8 @@ async def generate_image(payload: GenerateImageRequest, background_tasks: Backgr
         raise HTTPException(404, "Product image not found")
     if payload.category:
         normalize_category(payload.category)
-    normalize_gender(payload.gender)
+    if payload.gender:
+        normalize_gender(payload.gender)
     normalize_style(payload.style)
     normalize_render_preset(payload.render_preset)
 
