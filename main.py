@@ -189,10 +189,16 @@ def resolve_all_params(product_id: str, payload) -> tuple:
     metadata_path = UPLOAD_DIR / f"{product_id}.json"
     if metadata_path.exists():
         with open(metadata_path) as f:
-            detected = json.load(f).get("detected_params", {})
+            detected = json.load(f).get("detected_params", {}) or {}
 
-    raw_category = payload.category or detected.get("category") or ""
-    raw_gender   = payload.gender   or detected.get("gender")   or "female"
+    # If no category in metadata (detection failed at upload), retry now
+    if not detected.get("category"):
+        file_path = resolve_image_path(product_id)
+        if file_path:
+            detected = analyze_image_params(file_path)
+
+    raw_category = detected.get("category") or payload.category or ""
+    raw_gender   = detected.get("gender")   or payload.gender   or "female"
     skin_tone    = payload.skin_tone if payload.skin_tone else detected.get("skin_tone", "medium")
     stone_detail = payload.stone_detail if payload.stone_detail else detected.get("stone_detail", "")
 
