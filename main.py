@@ -890,6 +890,72 @@ async def generate_prompt(payload: GeneratePromptRequest):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+def generate_creative_model_prompt(
+    category: str,
+    gender: str,
+    skin_tone: str,
+    stone_detail: str,
+    aesthetic_vibe: str,
+    image_path: Path
+) -> str:
+    """
+    Ask Gemini to study the product and invent a unique editorial campaign prompt.
+    Each call produces a fresh, original composition — no two shots should look the same.
+    Falls back to static build_prompt on failure.
+    """
+    JEWELRY_LABEL = {
+        "bracelet": "gold bracelet",
+        "ring":     "gold ring",
+        "earrings": "gold earrings",
+        "necklace": "gold necklace",
+    }
+    label       = JEWELRY_LABEL.get(category, "gold jewelry")
+    stone_ctx   = f"set with {stone_detail}" if stone_detail.strip() else "no gemstones"
+    vibe_ctx    = f"The overall mood should evoke: {aesthetic_vibe}." if aesthetic_vibe.strip() else ""
+
+    meta_prompt = (
+        f"You are a world-class luxury jewelry art director creating a one-of-a-kind editorial campaign image.\n\n"
+        f"Study this {label} ({stone_ctx}) carefully — every curve, texture, and detail matters.\n"
+        f"Subject: {gender} model with {skin_tone} skin tone. {vibe_ctx}\n\n"
+        f"TASK: Write a vivid, specific image generation prompt (150–250 words) for a UNIQUE editorial model shoot.\n\n"
+        f"CREATIVE FREEDOM — invent your own scene. Vary freely:\n"
+        f"  · Pose & gesture — hand positions, how the body interacts with the {label}\n"
+        f"  · Face inclusion — none / chin+lips only / cheek+jaw / eye+brow only — never a full face\n"
+        f"  · Background — velvet, marble, silk, concrete, linen, terracotta, nature — anything evocative\n"
+        f"  · Lighting — golden hour, chiaroscuro, diffused window, neon accent, candlelight rim\n"
+        f"  · Mood — romantic, editorial cold, warm intimate, architectural minimal, mystic, cinematic\n"
+        f"  · Framing — extreme close-up, medium crop, dramatic diagonal, symmetric\n\n"
+        f"ALWAYS follow these rules:\n"
+        f"  1. The {label} is the ABSOLUTE hero — in razor-sharp focus, center of visual gravity\n"
+        f"  2. Skin: porcelain glass-skin — luminously translucent, lit from within, zero visible pores\n"
+        f"  3. Nails: impeccably manicured, nude or white — never distracting\n"
+        f"  4. No full face in frame — only partial impressionistic face elements in warm bokeh\n"
+        f"  5. Specify exact technical: lens, aperture, lighting source direction\n"
+        f"  6. End your prompt with this exact sentence:\n"
+        f'     "ZERO TOLERANCE: Reproduce the {label} EXACTLY as in the reference image — '
+        f'identical design, gold color, all proportions, every stone, link, and detail unchanged. '
+        f'Do NOT redesign, simplify, or alter the jewelry in any way."\n\n'
+        f"Return ONLY the prompt text. No headings, labels, or explanation."
+    )
+
+    img = Image.open(image_path)
+    response = model.generate_content([img, meta_prompt])
+    creative_prompt = response.text.strip()
+
+    # Ensure product integrity block is always appended
+    integrity_block = (
+        "\n\n══════════ ABSOLUTE PRODUCT INTEGRITY — ZERO TOLERANCE ══════════\n"
+        f"• The {label} in the output MUST be 100% identical to the reference source image.\n"
+        "• FORBIDDEN: any reshaping, missing stones, altered proportions, wrong gold color, simplified geometry.\n"
+        "• Gold color: warm rich 18k–22k yellow gold — authentic metallic reflections and surface texture.\n"
+        "• Reproduce EVERY detail: prongs, links, clasps, engravings, stone settings, surface texture, patina.\n"
+        "• Gemstones: exact color, cut, facets, fire, brilliance, transparency — zero creative reinterpretation.\n"
+        "• Do NOT upgrade, stylize, or redesign — mirror the source jewelry with photographic precision.\n"
+        "═════════════════════════════════════════════════════════════════"
+    )
+    return creative_prompt + integrity_block
+
+
 def process_generation_job(job_id: str, payload: GenerateImageRequest):
     try:
         with JOBS_LOCK:
@@ -908,14 +974,36 @@ def process_generation_job(job_id: str, payload: GenerateImageRequest):
         render_preset = normalize_render_preset(payload.render_preset)
         image_model, model_name = select_image_model(render_preset)
 
-        prompt = build_prompt(
-            category=category,
-            gender=gender,
-            style=style,
-            skin_tone=skin_tone,
-            stone_detail=stone_detail,
-            aesthetic_vibe=aesthetic_vibe
-        )
+        if style == "model":
+            try:
+                prompt = generate_creative_model_prompt(
+                    category=category,
+                    gender=gender,
+                    skin_tone=skin_tone,
+                    stone_detail=stone_detail,
+                    aesthetic_vibe=aesthetic_vibe,
+                    image_path=file_path
+                )
+                print(f"[creative_prompt] Generated unique editorial prompt for job {job_id}")
+            except Exception as e:
+                print(f"[creative_prompt] Failed ({e}), falling back to static prompt")
+                prompt = build_prompt(
+                    category=category,
+                    gender=gender,
+                    style=style,
+                    skin_tone=skin_tone,
+                    stone_detail=stone_detail,
+                    aesthetic_vibe=aesthetic_vibe
+                )
+        else:
+            prompt = build_prompt(
+                category=category,
+                gender=gender,
+                style=style,
+                skin_tone=skin_tone,
+                stone_detail=stone_detail,
+                aesthetic_vibe=aesthetic_vibe
+            )
 
         with JOBS_LOCK:
             JOBS[job_id]["progress"] = 45
