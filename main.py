@@ -152,6 +152,36 @@ STYLE_ALIASES = {
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 
+def detect_category_from_image(file_path: Path) -> str | None:
+    """Use Gemini to auto-detect jewelry category from image"""
+    try:
+        img = Image.open(file_path)
+        response = model.generate_content([
+            "Look at this jewelry image and classify it. "
+            "Reply with ONLY one word from this list: earrings, necklace, ring, bracelet. "
+            "No other text, no punctuation.",
+            img
+        ])
+        detected = response.text.strip().lower()
+        if detected in ALLOWED_CATEGORIES:
+            return detected
+    except Exception:
+        pass
+    return None
+
+def resolve_category(product_id: str, category: str) -> str:
+    """Return category from request or fall back to metadata auto-detection"""
+    if category:
+        return normalize_category(category)
+    metadata_path = UPLOAD_DIR / f"{product_id}.json"
+    if metadata_path.exists():
+        with open(metadata_path) as f:
+            meta = json.load(f)
+        stored = meta.get("category")
+        if stored and stored in ALLOWED_CATEGORIES:
+            return stored
+    raise HTTPException(400, "Category could not be detected. Please provide it manually.")
+
 def calculate_hash(file_path: Path) -> str:
     """Calculate SHA-256 hash of file"""
     sha256_hash = hashlib.sha256()
@@ -262,7 +292,7 @@ anatomy errors, low resolution, plastic texture, noisy background, bad reflectio
 
 class GenerateImageRequest(BaseModel):
     product_id: str
-    category: str = "bracelet"
+    category: str = ""
     gender: str = "female"
     style: str = "model"
     skin_tone: str = "medium"
@@ -271,7 +301,7 @@ class GenerateImageRequest(BaseModel):
 
 class GeneratePromptRequest(BaseModel):
     product_id: str
-    category: str = "bracelet"
+    category: str = ""
     gender: str = "female"
     style: str = "model"
     skin_tone: str = "medium"
@@ -510,13 +540,12 @@ async def upload_jewelry(file: UploadFile = File(...)):
         img = Image.open(file_path)
         width, height = img.size
         
-        if width < 1024 or height < 1024:
-            os.remove(file_path)
-            raise HTTPException(400, f"Image too small: {width}x{height}. Minimum 1024x1024")
-        
         # Calculate hash
         file_hash = calculate_hash(file_path)
-        
+
+        # Auto-detect category
+        detected_category = detect_category_from_image(file_path)
+
         # Save metadata
         metadata = {
             "product_id": product_id,
@@ -524,7 +553,8 @@ async def upload_jewelry(file: UploadFile = File(...)):
             "size": {"width": width, "height": height},
             "format": img.format,
             "hash": file_hash,
-            "uploaded_at": datetime.now().isoformat()
+            "uploaded_at": datetime.now().isoformat(),
+            "category": detected_category
         }
         
         metadata_path = UPLOAD_DIR / f"{product_id}.json"
@@ -548,7 +578,7 @@ async def generate_prompt(payload: GeneratePromptRequest):
         if not file_path:
             raise HTTPException(404, "Product image not found")
 
-        category = normalize_category(payload.category)
+        category = resolve_category(payload.product_id, payload.category)
         gender = normalize_gender(payload.gender)
         style = normalize_style(payload.style)
 
@@ -601,7 +631,7 @@ def process_generation_job(job_id: str, payload: GenerateImageRequest):
         if not file_path:
             raise RuntimeError("Product image not found")
 
-        category = normalize_category(payload.category)
+        category = resolve_category(payload.product_id, payload.category)
         gender = normalize_gender(payload.gender)
         style = normalize_style(payload.style)
         render_preset = normalize_render_preset(payload.render_preset)
@@ -690,7 +720,8 @@ async def generate_image(payload: GenerateImageRequest, background_tasks: Backgr
     file_path = resolve_image_path(payload.product_id)
     if not file_path:
         raise HTTPException(404, "Product image not found")
-    normalize_category(payload.category)
+    if payload.category:
+        normalize_category(payload.category)
     normalize_gender(payload.gender)
     normalize_style(payload.style)
     normalize_render_preset(payload.render_preset)
