@@ -162,8 +162,9 @@ def analyze_image_params(file_path: Path) -> dict:
             '{\n'
             '  "category": one of ["earrings", "necklace", "ring", "bracelet"],\n'
             '  "gender": one of ["female", "male", "child", "unisex"] based on jewelry design style,\n'
-            '  "skin_tone": suggested model skin tone as a short phrase (e.g. "warm medium", "fair", "deep warm"),\n'
-            '  "stone_detail": describe any gemstones visible (color, cut, type), or empty string if none\n'
+            '  "skin_tone": one of ["fair porcelain", "light warm", "light neutral", "warm medium", "medium olive", "medium tan", "deep warm", "rich deep"],\n'
+            '  "stone_detail": describe any gemstones visible (color, cut, type), or empty string if none,\n'
+            '  "name": a short luxury product name in English, max 4 words (e.g. "Celestial Gold Ring", "Turquoise Drop Earrings", "Diamond Tennis Bracelet")\n'
             '}\n'
             'IMPORTANT: Return ONLY the raw JSON object. No markdown, no code fences, no explanation.',
             img
